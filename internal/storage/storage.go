@@ -2,11 +2,13 @@ package storage
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"log"
 	"time"
 
 	"ChainDocs/internal/block"
+
 	"go.etcd.io/bbolt"
 )
 
@@ -297,4 +299,57 @@ func (s *Storage) GetHeight() (int64, error) {
 	})
 
 	return height, err
+}
+
+// SavePublicKey сохраняет публичный ключ
+func (s *Storage) SavePublicKey(pubKey string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("pubkeys"))
+		if err != nil {
+			return err
+		}
+		return bucket.Put([]byte(pubKey), []byte{1})
+	})
+}
+
+// GetAllPublicKeys возвращает все ключи
+func (s *Storage) GetAllPublicKeys() ([]string, error) {
+	var keys []string
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte("pubkeys"))
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+			keys = append(keys, string(k))
+		}
+		return nil
+	})
+	return keys, err
+}
+
+// SaveDocumentMetadata сохраняет информацию о документе
+func (s *Storage) SaveDocumentMetadata(docHash string, filename string, size int64, blockHash [32]byte) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("documents_meta"))
+		if err != nil {
+			return err
+		}
+
+		metadata := map[string]interface{}{
+			"filename":   filename,
+			"size":       size,
+			"block_hash": blockHash[:],
+			"uploaded":   time.Now(),
+		}
+
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put([]byte(docHash), data)
+	})
 }

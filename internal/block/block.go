@@ -1,6 +1,7 @@
 package block
 
 import (
+	"ChainDocs/internal/crypto"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -126,4 +127,18 @@ func (b *Block) UnmarshalJSON(data []byte) error {
 // ShortHash возвращает первые 8 символов хэша для отображения
 func (b *Block) ShortHash() string {
 	return hex.EncodeToString(b.Hash[:])[:8]
+}
+
+// Подписать блок ключом
+func (b *Block) Sign(kp *crypto.KeyPair) {
+	// Подписываем хэш блока (не сам блок!)
+	b.Signature = kp.Sign(b.Hash[:])
+}
+
+// Проверить подпись блока
+func (b *Block) VerifySignature(publicKey []byte) bool {
+	if len(b.Signature) == 0 {
+		return false
+	}
+	return crypto.Verify(publicKey, b.Hash[:], b.Signature)
 }
