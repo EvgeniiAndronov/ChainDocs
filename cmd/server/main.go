@@ -4,6 +4,7 @@ import (
 	"ChainDocs/internal/block"
 	"ChainDocs/internal/crypto"
 	"ChainDocs/pkg/logger"
+	"ChainDocs/pkg/metrics"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
@@ -53,6 +55,9 @@ func main() {
 
 	logger.Info("🚀 ChainDocs Server starting...")
 	logger.Info("📄 Config loaded: port=%d, db=%s", config.Port, config.DBPath)
+
+	// Инициализация метрик
+	metrics.Init()
 
 	// Определяем путь к БД
 	dbPath := config.DBPath
@@ -91,6 +96,21 @@ func main() {
 	// Middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.RequestID)
+	
+	// Metrics middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			duration := time.Since(start).Seconds()
+			if metrics.DefaultMetrics != nil {
+				metrics.DefaultMetrics.ObserveRequest(duration)
+			}
+		})
+	})
+	
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -122,6 +142,9 @@ func main() {
 	r.Post("/api/revoke", srv.handleRevokeKey)
 	r.Get("/api/keys/revoked", srv.handleGetRevokedKeys)
 	r.Get("/api/keys/active", srv.handleGetActiveKeys)
+	
+	// Metrics endpoint
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	// Static files
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
