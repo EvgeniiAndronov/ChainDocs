@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ChainDocs/pkg/logger"
 	"encoding/json"
 	"os"
 	"time"
@@ -17,11 +18,23 @@ type ServerConfig struct {
 	// UploadDir директория для загруженных файлов
 	UploadDir string `json:"upload_dir"`
 	
+	// LogFile путь к файлу лога
+	LogFile string `json:"log_file"`
+	
+	// LogLevel уровень логирования
+	LogLevel string `json:"log_level"`
+	
 	// Consensus настройки консенсуса
 	Consensus ConsensusConfig `json:"consensus"`
 	
 	// Activity настройки активности
 	Activity ActivityConfig `json:"activity"`
+	
+	// TLS настройки TLS
+	TLS TLSConfig `json:"tls"`
+	
+	// RateLimit настройки rate limiting
+	RateLimit RateLimitConfig `json:"rate_limit"`
 }
 
 // ConsensusConfig настройки консенсуса
@@ -49,6 +62,30 @@ type ActivityConfig struct {
 	
 	// AutoCleanup автоматически очищать старую активность
 	AutoCleanup bool `json:"auto_cleanup"`
+}
+
+// TLSConfig настройки TLS
+type TLSConfig struct {
+	// Enabled включить TLS
+	Enabled bool `json:"enabled"`
+	
+	// CertFile путь к сертификату
+	CertFile string `json:"cert_file"`
+	
+	// KeyFile путь к ключу
+	KeyFile string `json:"key_file"`
+}
+
+// RateLimitConfig настройки rate limiting
+type RateLimitConfig struct {
+	// Enabled включить rate limiting
+	Enabled bool `json:"enabled"`
+	
+	// RequestsPerSecond запросов в секунду
+	RequestsPerSecond int `json:"requests_per_second"`
+	
+	// Burst максимальный burst
+	Burst int `json:"burst"`
 }
 
 // Duration кастомный тип для JSON парсинга
@@ -85,6 +122,8 @@ func DefaultServerConfig() *ServerConfig {
 		Port:      8080,
 		DBPath:    "blockchain.db",
 		UploadDir: "./uploads",
+		LogFile:   "", // stdout
+		LogLevel:  "info",
 		Consensus: ConsensusConfig{
 			Type:            "percentage",
 			Percentage:      51,
@@ -95,6 +134,16 @@ func DefaultServerConfig() *ServerConfig {
 		Activity: ActivityConfig{
 			Window:      Duration(24 * time.Hour),
 			AutoCleanup: true,
+		},
+		TLS: TLSConfig{
+			Enabled:  false,
+			CertFile: "",
+			KeyFile:  "",
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:           false,
+			RequestsPerSecond: 10,
+			Burst:             20,
 		},
 	}
 }
@@ -121,4 +170,34 @@ func SaveServerConfig(config *ServerConfig, path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0600)
+}
+
+// loadConfig загружает конфигурацию из файла или создаёт дефолтную
+func loadConfig() *ServerConfig {
+	configPath := os.Getenv("CHAINDOCS_CONFIG")
+	if configPath == "" {
+		configPath = "config.json"
+	}
+
+	// Пробуем загрузить из файла
+	if _, err := os.Stat(configPath); err == nil {
+		config, err := LoadServerConfig(configPath)
+		if err != nil {
+			logger.Warn("⚠️  Failed to load config from %s: %v", configPath, err)
+			logger.Info("📄 Using default configuration")
+			return DefaultServerConfig()
+		}
+		logger.Info("📄 Config loaded from %s", configPath)
+		return config
+	}
+
+	// Файла нет, создаём дефолтный
+	logger.Info("📄 Config file not found, using defaults")
+	
+	// Сохраняем дефолтный конфиг для будущего использования
+	if err := SaveServerConfig(DefaultServerConfig(), configPath); err == nil {
+		logger.Info("📄 Default config saved to %s", configPath)
+	}
+	
+	return DefaultServerConfig()
 }

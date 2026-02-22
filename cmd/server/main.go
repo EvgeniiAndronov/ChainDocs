@@ -3,12 +3,12 @@ package main
 import (
 	"ChainDocs/internal/block"
 	"ChainDocs/internal/crypto"
+	"ChainDocs/pkg/logger"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,11 +27,35 @@ type Server struct {
 	db      *storage.Storage
 	pubKeys map[string]bool // зарегистрированные ключи
 	mu      sync.RWMutex
+	logger  *logger.Logger
+	config  *ServerConfig
 }
 
 func main() {
-	// Определяем путь к БД из переменной окружения или используем по умолчанию
-	dbPath := os.Getenv("CHAINDOCS_DB")
+	// Загружаем конфигурацию
+	config := loadConfig()
+
+	// Инициализируем логгер
+	logConfig := logger.Config{
+		Level:      "info",
+		File:       config.LogFile,
+		Format:     "text",
+		MaxSize:    100,
+		MaxBackups: 5,
+		MaxAge:     30,
+		Compress:   true,
+	}
+	
+	if err := logger.Init(logConfig); err != nil {
+		logger.Fatalf("Failed to init logger: %v", err)
+	}
+	defer logger.Close()
+
+	logger.Info("🚀 ChainDocs Server starting...")
+	logger.Info("📄 Config loaded: port=%d, db=%s", config.Port, config.DBPath)
+
+	// Определяем путь к БД
+	dbPath := config.DBPath
 	if dbPath == "" {
 		dbPath = "blockchain.db"
 	}
@@ -39,24 +63,26 @@ func main() {
 	// Инициализируем хранилище
 	store, err := storage.New(dbPath)
 	if err != nil {
-		log.Fatal("Failed to open storage:", err)
+		logger.Error("❌ Failed to open storage: %v", err)
+		os.Exit(1)
 	}
-	defer func(store *storage.Storage) {
-		err := store.Close()
-		if err != nil {
-			log.Printf("Error closing storage: %v", err)
+	defer func() {
+		if err := store.Close(); err != nil {
+			logger.Error("Error closing storage: %v", err)
 		}
-	}(store)
+	}()
 
 	// Создаем генезис если нужно
 	if err := store.InitGenesis(); err != nil {
-		log.Fatal("Failed to init genesis:", err)
+		logger.Error("❌ Failed to init genesis: %v", err)
+		os.Exit(1)
 	}
 
 	// Создаем сервер с загрузкой ключей
-	srv, err := NewServer(store)
+	srv, err := NewServer(store, config)
 	if err != nil {
-		log.Fatal("Failed to create server:", err)
+		logger.Error("❌ Failed to create server: %v", err)
+		os.Exit(1)
 	}
 
 	// Настраиваем роутер
@@ -100,21 +126,25 @@ func main() {
 	// Static files
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
-	log.Println("🚀 Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	logger.Info("🚀 Server starting on :%d", config.Port)
+	logger.Fatal("%v", http.ListenAndServe(fmt.Sprintf(":%d", config.Port), r))
 }
 
 // NewServer создает новый сервер с загрузкой ключей из БД
-func NewServer(store *storage.Storage) (*Server, error) {
+func NewServer(store *storage.Storage, config *ServerConfig) (*Server, error) {
 	s := &Server{
 		db:      store,
 		pubKeys: make(map[string]bool),
+		logger:  logger.DefaultLogger,
+		config:  config,
 	}
 
 	// Загружаем сохраненные ключи
 	if err := s.loadKeys(); err != nil {
 		return nil, err
 	}
+
+	logger.Info("✅ Loaded %d public keys from database", len(s.pubKeys))
 
 	return s, nil
 }
@@ -134,7 +164,7 @@ func (s *Server) loadKeys() error {
 		s.pubKeys[key] = true
 	}
 
-	log.Printf("✅ Loaded %d public keys from database", len(keys))
+	logger.Info("✅ Loaded %d public keys from database", len(keys))
 	return nil
 }
 
@@ -252,7 +282,7 @@ func (s *Server) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
 	s.pubKeys[req.PublicKey] = true
 	s.mu.Unlock()
 
-	log.Printf("✅ Public key registered: %s...", req.PublicKey[:16])
+	logger.Info("✅ Public key registered: %s...", req.PublicKey[:16])
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -321,7 +351,7 @@ func (s *Server) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("✅ New block created: height=%d, hash=%s, signatures=1", 
+	logger.Info("✅ New block created: height=%d, hash=%s, signatures=1", 
 		newBlock.Height, newBlock.ShortHash())
 
 	w.Header().Set("Content-Type", "application/json")
@@ -422,12 +452,12 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		required = 2
 	}
 	
-	log.Printf("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]", 
+	logger.Info("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]", 
 		b.Height, req.PublicKey[:16], signed, required, percent)
 	
 	// Если консенсус достигнут
 	if b.ConsensusReached(totalKeys) && signed >= required {
-		log.Printf("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)", 
+		logger.Info("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)", 
 			b.Height, signed, required)
 	}
 
@@ -524,8 +554,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Можно сохранить в отдельный bucket в БД
 	// TODO: сохранять метаданные документа
 
-	log.Printf("📄 File uploaded: %s (%d bytes), hash: %s", header.Filename, header.Size, hashHex[:16])
-	log.Printf("🔗 Block created: height=%d, hash=%s", newBlock.Height, newBlock.ShortHash())
+	logger.Info("📄 File uploaded: %s (%d bytes), hash: %s", header.Filename, header.Size, hashHex[:16])
+	logger.Info("🔗 Block created: height=%d, hash=%s", newBlock.Height, newBlock.ShortHash())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -699,7 +729,7 @@ func (s *Server) handleRevokeKey(w http.ResponseWriter, r *http.Request) {
 	delete(s.pubKeys, req.PublicKey)
 	s.mu.Unlock()
 
-	log.Printf("🚫 Key revoked: %s... (reason: %s, replaced by: %s...)", 
+	logger.Info("🚫 Key revoked: %s... (reason: %s, replaced by: %s...)", 
 		req.PublicKey[:16], req.Reason, req.NewPublicKey[:16])
 
 	w.WriteHeader(http.StatusOK)
