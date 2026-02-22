@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.chaindocs.client</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/chaindocs/chaindocs-client</string>
+        <string>-config</string>
+        <string>/opt/chaindocs/config.json</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/opt/chaindocs</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>/opt/chaindocs/logs/chaindocs-client.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/opt/chaindocs/logs/chaindocs-client.err</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>CHAINDOCS_KEY_PASSWORD</key>
+        <string></string>
+    </dict>
+    
+    <key>ProcessType</key>
+    <string>Background</string>
+    
+    <key>LowPriorityIO</key>
+    <true/>
+    
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>256</integer>
+        <key>MemoryLock</key>
+        <integer>67108864</integer>
+    </dict>
+</dict>
+</plist>

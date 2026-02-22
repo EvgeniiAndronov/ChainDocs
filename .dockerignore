@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# Build artifacts
+bin/
+*.db
+*.enc
+
+# Uploads
+uploads/
+
+# Logs
+*.log
+logs/
+
+# Test files
+test/
+*_test.go
+
+# Documentation
+description.md
+*.md
+
+# Scripts
+scripts/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db

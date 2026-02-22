@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -12,12 +13,21 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// RevocationInfo информация об отозванном ключе
+type RevocationInfo struct {
+	PublicKey string `json:"public_key"`
+	Reason    string `json:"reason"`
+	RevokedAt string `json:"revoked_at"`
+}
+
 var (
 	// Бакеты
 	bucketBlocks = []byte("blocks")    // хэш блока -> блок
 	bucketHeight = []byte("height")    // высота -> хэш блока
 	bucketDocs   = []byte("documents") // хэш документа -> хэш блока
 	bucketMeta   = []byte("metadata")  // метаданные (последний блок и т.д.)
+	bucketPubKeys = []byte("pubkeys")  // зарегистрированные публичные ключи
+	bucketRevoked = []byte("revoked")  // отозванные ключи
 
 	// Ключи метаданных
 	keyLastHash   = []byte("last_hash")
@@ -47,6 +57,8 @@ func New(path string) (*Storage, error) {
 		tx.CreateBucketIfNotExists(bucketHeight)
 		tx.CreateBucketIfNotExists(bucketDocs)
 		tx.CreateBucketIfNotExists(bucketMeta)
+		tx.CreateBucketIfNotExists(bucketPubKeys)
+		tx.CreateBucketIfNotExists(bucketRevoked)
 		return nil
 	})
 
@@ -304,9 +316,9 @@ func (s *Storage) GetHeight() (int64, error) {
 // SavePublicKey сохраняет публичный ключ
 func (s *Storage) SavePublicKey(pubKey string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("pubkeys"))
-		if err != nil {
-			return err
+		bucket := tx.Bucket(bucketPubKeys)
+		if bucket == nil {
+			return fmt.Errorf("pubkeys bucket not found")
 		}
 		return bucket.Put([]byte(pubKey), []byte{1})
 	})
@@ -316,7 +328,7 @@ func (s *Storage) SavePublicKey(pubKey string) error {
 func (s *Storage) GetAllPublicKeys() ([]string, error) {
 	var keys []string
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("pubkeys"))
+		bucket := tx.Bucket(bucketPubKeys)
 		if bucket == nil {
 			return nil
 		}
@@ -327,6 +339,111 @@ func (s *Storage) GetAllPublicKeys() ([]string, error) {
 		}
 		return nil
 	})
+	return keys, err
+}
+
+// RevokePublicKey отзывает публичный ключ
+func (s *Storage) RevokePublicKey(pubKey string, reason string, revokedAt time.Time) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		// Добавляем в bucket отозванных
+		bucket, err := tx.CreateBucketIfNotExists(bucketRevoked)
+		if err != nil {
+			return err
+		}
+
+		revocationData := map[string]interface{}{
+			"public_key": pubKey,
+			"reason":     reason,
+			"revoked_at": revokedAt.Format(time.RFC3339),
+		}
+		data, err := json.Marshal(revocationData)
+		if err != nil {
+			return err
+		}
+
+		if err := bucket.Put([]byte(pubKey), data); err != nil {
+			return err
+		}
+
+		// Удаляем из активных ключей
+		pubKeysBucket := tx.Bucket(bucketPubKeys)
+		if pubKeysBucket != nil {
+			if err := pubKeysBucket.Delete([]byte(pubKey)); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// IsKeyRevoked проверяет, отозван ли ключ
+func (s *Storage) IsKeyRevoked(pubKey string) (bool, *RevocationInfo, error) {
+	var revoked bool
+	var info *RevocationInfo
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketRevoked)
+		if bucket == nil {
+			return nil
+		}
+
+		data := bucket.Get([]byte(pubKey))
+		if data == nil {
+			return nil
+		}
+
+		revoked = true
+		info = &RevocationInfo{}
+		return json.Unmarshal(data, info)
+	})
+
+	return revoked, info, err
+}
+
+// GetRevocationInfo возвращает информацию об отзыве ключа
+func (s *Storage) GetRevocationInfo(pubKey string) (*RevocationInfo, error) {
+	var info *RevocationInfo
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketRevoked)
+		if bucket == nil {
+			return fmt.Errorf("revoked bucket not found")
+		}
+
+		data := bucket.Get([]byte(pubKey))
+		if data == nil {
+			return fmt.Errorf("key not found in revoked list")
+		}
+
+		info = &RevocationInfo{}
+		return json.Unmarshal(data, info)
+	})
+
+	return info, err
+}
+
+// GetAllRevokedKeys возвращает все отозванные ключи
+func (s *Storage) GetAllRevokedKeys() ([]RevocationInfo, error) {
+	var keys []RevocationInfo
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketRevoked)
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var info RevocationInfo
+			if err := json.Unmarshal(v, &info); err != nil {
+				return err
+			}
+			keys = append(keys, info)
+		}
+		return nil
+	})
+
 	return keys, err
 }
 

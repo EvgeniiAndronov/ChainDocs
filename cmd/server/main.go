@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -72,11 +73,15 @@ func main() {
 	r.Get("/api/blocks/last", srv.handleGetLastBlock)
 	r.Get("/api/blocks/{hash}", srv.handleGetBlock)
 	r.Get("/api/blocks/height/{height}", srv.handleGetBlockByHeight)
+	r.Get("/api/blocks/{hash}/consensus", srv.handleGetConsensus)
 	r.Post("/api/blocks", srv.handleCreateBlock)
 	r.Post("/api/register", srv.handleRegisterKey)
 	r.Post("/api/sign", srv.handleSignature)
 	r.Post("/api/upload", srv.handleUpload)
 	r.Get("/api/documents/{hash}", srv.handleGetDocument)
+	r.Get("/api/keys", srv.handleGetKeys)
+	r.Post("/api/revoke", srv.handleRevokeKey)
+	r.Get("/api/keys/revoked", srv.handleGetRevokedKeys)
 
 	log.Println("🚀 Server starting on :8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
@@ -126,8 +131,15 @@ func (s *Server) handleHome(w http.ResponseWriter, _ *http.Request) {
             <li><a href="/api/blocks/last">GET /api/blocks/last</a> - последний блок</li>
             <li>GET /api/blocks/{hash} - блок по хэшу</li>
             <li>GET /api/blocks/height/{height} - блок по высоте</li>
+            <li>GET /api/blocks/{hash}/consensus - статус консенсуса блока</li>
             <li>POST /api/blocks - создать блок (с подписью)</li>
             <li>POST /api/register - зарегистрировать публичный ключ</li>
+            <li>POST /api/sign - отправить подпись блока</li>
+            <li>POST /api/upload - загрузить документ (PDF)</li>
+            <li>GET /api/documents/{hash} - скачать документ</li>
+            <li>GET /api/keys - список зарегистрированных ключей</li>
+            <li>POST /api/revoke - отозвать ключ (требуется подпись новым ключом)</li>
+            <li>GET /api/keys/revoked - список отозванных ключей</li>
         </ul>
     `))
 }
@@ -232,7 +244,7 @@ func (s *Server) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// СОЗДАНИЕ БЛОКА С ПОДПИСЬЮ
+// СОЗДАНИЕ БЛОКА С ПОДПИСЬЮ (поддержка мульти-подписей)
 func (s *Server) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DocumentHash string `json:"document_hash"`
@@ -281,14 +293,10 @@ func (s *Server) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем новый блок
 	newBlock := block.NewBlock(last.Height+1, last.Hash, docHashArr)
-	newBlock.Signature = signature
-
-	// Проверяем подпись
+	
+	// Добавляем подпись
 	pubKey, _ := crypto.StringToPublicKey(req.PublicKey)
-	if !newBlock.VerifySignature(pubKey) {
-		http.Error(w, "Invalid signature", http.StatusUnauthorized)
-		return
-	}
+	newBlock.AddSignature(pubKey, signature)
 
 	// Сохраняем
 	if err := s.db.SaveBlock(newBlock); err != nil {
@@ -296,14 +304,15 @@ func (s *Server) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("✅ New block created: height=%d, hash=%s", newBlock.Height, newBlock.ShortHash())
+	log.Printf("✅ New block created: height=%d, hash=%s, signatures=1", 
+		newBlock.Height, newBlock.ShortHash())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newBlock)
 }
 
-// ПРИЕМ ПОДПИСИ
+// ПРИЕМ ПОДПИСИ (поддержка мульти-подписей)
 func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		BlockHash string `json:"block_hash"`
@@ -322,7 +331,13 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	if !exists {
-		http.Error(w, "Public key not registered", http.StatusUnauthorized)
+		// Проверяем, не отозван ли ключ
+		isRevoked, info, _ := s.db.IsKeyRevoked(req.PublicKey)
+		if isRevoked {
+			http.Error(w, fmt.Sprintf("Public key revoked at %s: %s", info.RevokedAt, info.Reason), http.StatusForbidden)
+		} else {
+			http.Error(w, "Public key not registered", http.StatusUnauthorized)
+		}
 		return
 	}
 
@@ -350,25 +365,47 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем подпись
+	// Проверяем, не подписывал ли уже этот блок этим ключом
 	pubKey, _ := crypto.StringToPublicKey(req.PublicKey)
+	if b.HasSignature(pubKey) {
+		http.Error(w, "Block already signed by this key", http.StatusConflict)
+		return
+	}
+
+	// Проверяем подпись
 	if !crypto.Verify(pubKey, hashArr[:], signature) {
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
 
-	// Сохраняем подпись в блоке
-	b.Signature = signature
+	// Добавляем подпись в блок
+	b.AddSignature(pubKey, signature)
+	
 	if err := s.db.SaveBlock(b); err != nil {
 		http.Error(w, "Failed to save signature", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ Signature saved for block %d from %s...", b.Height, req.PublicKey[:16])
+	// Проверяем консенсус
+	totalKeys := len(s.pubKeys)
+	signed, required, percent := b.GetConsensusProgress(totalKeys)
+	
+	log.Printf("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]", 
+		b.Height, req.PublicKey[:16], signed, required, percent)
+	
+	// Если консенсус достигнут
+	if b.ConsensusReached(totalKeys) {
+		log.Printf("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)", 
+			b.Height, signed, required)
+	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "signature saved",
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":     "signature saved",
+		"signatures": signed,
+		"required":   required,
+		"percent":    percent,
+		"consensus":  b.ConsensusReached(totalKeys),
 	})
 }
 
@@ -482,4 +519,162 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 
 	// Отдаем файл
 	http.ServeFile(w, r, filePath)
+}
+
+// handleGetConsensus - получение статуса консенсуса для блока
+func (s *Server) handleGetConsensus(w http.ResponseWriter, r *http.Request) {
+	hashStr := chi.URLParam(r, "hash")
+
+	hash, err := hex.DecodeString(hashStr)
+	if err != nil || len(hash) != 32 {
+		http.Error(w, "Invalid hash", http.StatusBadRequest)
+		return
+	}
+
+	var hashArr [32]byte
+	copy(hashArr[:], hash)
+
+	b, err := s.db.GetBlock(hashArr)
+	if err != nil {
+		http.Error(w, "Block not found", http.StatusNotFound)
+		return
+	}
+
+	s.mu.RLock()
+	totalKeys := len(s.pubKeys)
+	s.mu.RUnlock()
+
+	signed, required, percent := b.GetConsensusProgress(totalKeys)
+	consensusReached := b.ConsensusReached(totalKeys)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"block_hash":       hex.EncodeToString(b.Hash[:]),
+		"height":           b.Height,
+		"total_keys":       totalKeys,
+		"signatures":       signed,
+		"required":         required,
+		"percent":          percent,
+		"consensus_reached": consensusReached,
+		"signatures_list":  b.Signatures,
+	})
+}
+
+// handleGetKeys - получение списка зарегистрированных ключей
+func (s *Server) handleGetKeys(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	keys := make([]string, 0, len(s.pubKeys))
+	for k := range s.pubKeys {
+		keys = append(keys, k)
+	}
+	s.mu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count": len(keys),
+		"keys":  keys,
+	})
+}
+
+// handleRevokeKey - отзыв ключа
+func (s *Server) handleRevokeKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PublicKey    string `json:"public_key"`     // Ключ для отзыва
+		NewPublicKey string `json:"new_public_key"` // Новый ключ (для подтверждения владения)
+		NewSignature string `json:"new_signature"`  // Подпись новым ключом
+		Reason       string `json:"reason"`         // Причина отзыва
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что ключ существует
+	s.mu.RLock()
+	_, exists := s.pubKeys[req.PublicKey]
+	s.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Public key not found", http.StatusNotFound)
+		return
+	}
+
+	// Проверяем, что ключ ещё не отозван
+	isRevoked, _, err := s.db.IsKeyRevoked(req.PublicKey)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if isRevoked {
+		http.Error(w, "Key already revoked", http.StatusConflict)
+		return
+	}
+
+	// Проверяем подпись новым ключом (подтверждение владения)
+	// Владелец должен подписать сообщение "revoke:<old_key>" новым ключом
+	newPubKey, err := crypto.StringToPublicKey(req.NewPublicKey)
+	if err != nil {
+		http.Error(w, "Invalid new public key", http.StatusBadRequest)
+		return
+	}
+
+	signature, err := hex.DecodeString(req.NewSignature)
+	if err != nil || len(signature) != crypto.SignatureSize {
+		http.Error(w, "Invalid signature", http.StatusBadRequest)
+		return
+	}
+
+	// Формируем сообщение для проверки
+	message := []byte("revoke:" + req.PublicKey)
+	if !crypto.Verify(newPubKey, message, signature) {
+		http.Error(w, "Invalid signature - key ownership not confirmed", http.StatusUnauthorized)
+		return
+	}
+
+	// Проверяем, что новый ключ тоже зарегистрирован
+	s.mu.RLock()
+	_, newKeyExists := s.pubKeys[req.NewPublicKey]
+	s.mu.RUnlock()
+
+	if !newKeyExists {
+		http.Error(w, "New public key not registered", http.StatusBadRequest)
+		return
+	}
+
+	// Отозываем ключ
+	if err := s.db.RevokePublicKey(req.PublicKey, req.Reason, time.Now().UTC()); err != nil {
+		http.Error(w, "Failed to revoke key", http.StatusInternalServerError)
+		return
+	}
+
+	// Удаляем из кэша
+	s.mu.Lock()
+	delete(s.pubKeys, req.PublicKey)
+	s.mu.Unlock()
+
+	log.Printf("🚫 Key revoked: %s... (reason: %s, replaced by: %s...)", 
+		req.PublicKey[:16], req.Reason, req.NewPublicKey[:16])
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "revoked",
+		"key":    req.PublicKey,
+		"reason": req.Reason,
+	})
+}
+
+// handleGetRevokedKeys - получение списка отозванных ключей
+func (s *Server) handleGetRevokedKeys(w http.ResponseWriter, r *http.Request) {
+	keys, err := s.db.GetAllRevokedKeys()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count": len(keys),
+		"keys":  keys,
+	})
 }

@@ -12,6 +12,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/base64"
+
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -51,7 +52,6 @@ func Verify(publicKey ed25519.PublicKey, data, sig []byte) bool {
 	return ed25519.Verify(publicKey, data, sig)
 }
 
-// SavePrivateKey сохраняет зашифрованный приватный ключ
 // SavePrivateKey сохраняет зашифрованный приватный ключ
 func (kp *KeyPair) SavePrivateKey(filename, password string) error {
 	// Генерируем соль
