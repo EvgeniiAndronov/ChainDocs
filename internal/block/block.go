@@ -17,14 +17,22 @@ type Signature struct {
 	Timestamp string `json:"timestamp"`  // Время подписи (RFC3339)
 }
 
+// DocumentSignature подпись документа
+type DocumentSignature struct {
+	PublicKey string `json:"public_key"` // Публичный ключ владельца
+	Signature string `json:"signature"`  // Подпись хэша документа (hex)
+	Timestamp string `json:"timestamp"`  // Время подписи (RFC3339)
+}
+
 // Block - основная структура
 type Block struct {
-	Height       int64       `json:"height"`        // Номер блока
-	Timestamp    time.Time   `json:"timestamp"`     // Время создания
-	PrevHash     [32]byte    `json:"prev_hash"`     // Хэш предыдущего блока
-	DocumentHash [32]byte    `json:"document_hash"` // Хэш документа
-	Signatures   []Signature `json:"signatures"`    // Массив подписей (консенсус)
-	Hash         [32]byte    `json:"hash"`          // Хэш этого блока
+	Height            int64             `json:"height"`             // Номер блока
+	Timestamp         time.Time         `json:"timestamp"`          // Время создания
+	PrevHash          [32]byte          `json:"prev_hash"`          // Хэш предыдущего блока
+	DocumentHash      [32]byte          `json:"document_hash"`      // Хэш документа
+	DocumentSignature *DocumentSignature `json:"document_signature"` // Подпись документа владельцем
+	Signatures        []Signature       `json:"signatures"`         // Массив подписей (консенсус)
+	Hash              [32]byte          `json:"hash"`               // Хэш этого блока
 }
 
 // NewBlock создает новый блок
@@ -73,17 +81,19 @@ func (b *Block) Verify() bool {
 func (b *Block) MarshalJSON() ([]byte, error) {
 	type Alias Block
 	return json.Marshal(&struct {
-		PrevHash     string      `json:"prev_hash"`
-		DocumentHash string      `json:"document_hash"`
-		Hash         string      `json:"hash"`
-		Signatures   []Signature `json:"signatures"`
+		PrevHash          string             `json:"prev_hash"`
+		DocumentHash      string             `json:"document_hash"`
+		Hash              string             `json:"hash"`
+		Signatures        []Signature        `json:"signatures"`
+		DocumentSignature *DocumentSignature `json:"document_signature"`
 		*Alias
 	}{
-		PrevHash:     hex.EncodeToString(b.PrevHash[:]),
-		DocumentHash: hex.EncodeToString(b.DocumentHash[:]),
-		Hash:         hex.EncodeToString(b.Hash[:]),
-		Signatures:   b.Signatures,
-		Alias:        (*Alias)(b),
+		PrevHash:          hex.EncodeToString(b.PrevHash[:]),
+		DocumentHash:      hex.EncodeToString(b.DocumentHash[:]),
+		Hash:              hex.EncodeToString(b.Hash[:]),
+		Signatures:        b.Signatures,
+		DocumentSignature: b.DocumentSignature,
+		Alias:             (*Alias)(b),
 	})
 }
 
@@ -91,10 +101,11 @@ func (b *Block) MarshalJSON() ([]byte, error) {
 func (b *Block) UnmarshalJSON(data []byte) error {
 	type Alias Block
 	aux := &struct {
-		PrevHash     string      `json:"prev_hash"`
-		DocumentHash string      `json:"document_hash"`
-		Hash         string      `json:"hash"`
-		Signatures   []Signature `json:"signatures"`
+		PrevHash          string             `json:"prev_hash"`
+		DocumentHash      string             `json:"document_hash"`
+		Hash              string             `json:"hash"`
+		Signatures        []Signature        `json:"signatures"`
+		DocumentSignature *DocumentSignature `json:"document_signature"`
 		*Alias
 	}{
 		Alias: (*Alias)(b),
@@ -124,6 +135,7 @@ func (b *Block) UnmarshalJSON(data []byte) error {
 	copy(b.Hash[:], hash)
 
 	b.Signatures = aux.Signatures
+	b.DocumentSignature = aux.DocumentSignature
 
 	return nil
 }

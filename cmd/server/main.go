@@ -537,6 +537,33 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(data)
 	hashHex := hex.EncodeToString(hash[:])
 
+	// Получаем подпись документа (опционально)
+	docSignature := r.FormValue("document_signature")
+	publicKey := r.FormValue("public_key")
+
+	// Если подпись предоставлена - проверяем её
+	if docSignature != "" && publicKey != "" {
+		pubKey, err := crypto.StringToPublicKey(publicKey)
+		if err != nil {
+			http.Error(w, "Invalid public key", http.StatusBadRequest)
+			return
+		}
+
+		sigBytes, err := hex.DecodeString(docSignature)
+		if err != nil || len(sigBytes) != crypto.SignatureSize {
+			http.Error(w, "Invalid signature format", http.StatusBadRequest)
+			return
+		}
+
+		// Проверяем подпись хэша документа
+		if !crypto.Verify(pubKey, hash[:], sigBytes) {
+			http.Error(w, "Invalid document signature", http.StatusUnauthorized)
+			return
+		}
+
+		logger.Info("✅ Document signature verified: %s...", publicKey[:16])
+	}
+
 	// Сохраняем файл (имя = хэш.pdf)
 	filePath := filepath.Join(uploadDir, hashHex+".pdf")
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
@@ -553,6 +580,15 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	newBlock := block.NewBlock(last.Height+1, last.Hash, hash)
 
+	// Добавляем подпись документа если предоставлена
+	if docSignature != "" && publicKey != "" {
+		newBlock.DocumentSignature = &block.DocumentSignature{
+			PublicKey: publicKey,
+			Signature: docSignature,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+
 	// Сохраняем блок
 	if err := s.db.SaveBlock(newBlock); err != nil {
 		http.Error(w, "Failed to save block", http.StatusInternalServerError)
@@ -561,17 +597,19 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Сохраняем информацию о документе
 	docInfo := struct {
-		Hash      string    `json:"hash"`
-		Filename  string    `json:"filename"`
-		Size      int64     `json:"size"`
-		Uploaded  time.Time `json:"uploaded"`
-		BlockHash string    `json:"block_hash"`
+		Hash              string                 `json:"hash"`
+		Filename          string                 `json:"filename"`
+		Size              int64                  `json:"size"`
+		Uploaded          time.Time              `json:"uploaded"`
+		BlockHash         string                 `json:"block_hash"`
+		DocumentSignature *block.DocumentSignature `json:"document_signature,omitempty"`
 	}{
-		Hash:      hashHex,
-		Filename:  header.Filename,
-		Size:      header.Size,
-		Uploaded:  time.Now(),
-		BlockHash: hex.EncodeToString(newBlock.Hash[:]),
+		Hash:              hashHex,
+		Filename:          header.Filename,
+		Size:              header.Size,
+		Uploaded:          time.Now(),
+		BlockHash:         hex.EncodeToString(newBlock.Hash[:]),
+		DocumentSignature: newBlock.DocumentSignature,
 	}
 
 	// Можно сохранить в отдельный bucket в БД
