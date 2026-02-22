@@ -1,0 +1,28 @@
+{
+  "port": 8080,
+  "db_path": "blockchain.db",
+  "upload_dir": "./uploads",
+  "log_file": "",
+  "log_level": "info",
+  "consensus": {
+    "type": "percentage",
+    "percentage": 51,
+    "min_signatures": 2,
+    "max_signatures": 0,
+    "use_active_keys": true
+  },
+  "activity": {
+    "window": "24h0m0s",
+    "auto_cleanup": true
+  },
+  "tls": {
+    "enabled": false,
+    "cert_file": "",
+    "key_file": ""
+  },
+  "rate_limit": {
+    "enabled": false,
+    "requests_per_second": 10,
+    "burst": 20
+  }
+}

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -214,27 +213,47 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Статика не требует аутентификации
 		if strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Веб-интерфейс требует аутентификации
 		if strings.HasPrefix(r.URL.Path, "/web/") {
+			// Проверяем токен из разных источников
 			token := r.URL.Query().Get("token")
-			authHeader := r.Header.Get("Authorization")
 			
+			// Проверяем cookie
+			if token == "" {
+				if cookie, err := r.Cookie("auth_token"); err == nil {
+					token = cookie.Value
+				}
+			}
+			
+			authHeader := r.Header.Get("Authorization")
+
 			// Проверка токена
 			validToken := false
 			if token != "" && token == s.authToken {
 				validToken = true
+				// Устанавливаем cookie если токена не было
+				if r.URL.Query().Get("token") != "" {
+					http.SetCookie(w, &http.Cookie{
+						Name:     "auth_token",
+						Value:    token,
+						Path:     "/web/",
+						MaxAge:   86400, // 24 часа
+						HttpOnly: true,
+						SameSite: http.SameSiteLaxMode,
+					})
+				}
 			}
 			if strings.HasPrefix(authHeader, "Bearer ") && authHeader[7:] == s.authToken {
 				validToken = true
 			}
-			
+
 			if !validToken {
 				// Перенаправляем на страницу входа
 				if r.URL.Path != "/web/login" {
@@ -245,7 +264,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1213,8 +1232,18 @@ func (s *Server) handleWebLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	
 	if token == s.authToken {
-		// Перенаправляем на главную с токеном
-		http.Redirect(w, r, "/web/?token="+url.QueryEscape(token), http.StatusSeeOther)
+		// Устанавливаем cookie на 24 часа
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth_token",
+			Value:    token,
+			Path:     "/web/",
+			MaxAge:   86400, // 24 часа
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		
+		// Перенаправляем на главную
+		http.Redirect(w, r, "/web/", http.StatusSeeOther)
 	} else {
 		// Неверный токен
 		http.Redirect(w, r, "/web/login?error=invalid", http.StatusSeeOther)
