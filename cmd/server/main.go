@@ -5,15 +5,18 @@ import (
 	"ChainDocs/internal/crypto"
 	"ChainDocs/pkg/logger"
 	"ChainDocs/pkg/metrics"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +34,7 @@ type Server struct {
 	mu      sync.RWMutex
 	logger  *logger.Logger
 	config  *ServerConfig
+	authToken string // токен для веб-интерфейса
 }
 
 func main() {
@@ -111,6 +115,9 @@ func main() {
 		})
 	})
 	
+	// Auth middleware для веб-интерфейса
+	r.Use(srv.authMiddleware)
+	
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -121,6 +128,8 @@ func main() {
 
 	// Web UI routes
 	r.Get("/web/", srv.handleWebDashboard)
+	r.Get("/web/login", srv.handleWebLogin)
+	r.Post("/web/login", srv.handleWebLoginSubmit)
 	r.Get("/web/blocks", srv.handleWebBlocks)
 	r.Get("/web/blocks/{hash}", srv.handleWebBlock)
 	r.Get("/web/upload", srv.handleWebUpload)
@@ -168,6 +177,14 @@ func NewServer(store *storage.Storage, config *ServerConfig) (*Server, error) {
 		pubKeys: make(map[string]bool),
 		logger:  logger.DefaultLogger,
 		config:  config,
+		authToken: os.Getenv("CHAINDOCS_AUTH_TOKEN"), // из переменной окружения
+	}
+
+	// Если токен не задан, генерируем случайный
+	if s.authToken == "" {
+		s.authToken = generateRandomToken()
+		logger.Warn("⚠️  No auth token set. Using generated token: %s", s.authToken)
+		logger.Warn("⚠️  Set CHAINDOCS_AUTH_TOKEN environment variable for production")
 	}
 
 	// Загружаем сохраненные ключи
@@ -178,6 +195,59 @@ func NewServer(store *storage.Storage, config *ServerConfig) (*Server, error) {
 	logger.Info("✅ Loaded %d public keys from database", len(s.pubKeys))
 
 	return s, nil
+}
+
+// generateRandomToken генерирует случайный токен
+func generateRandomToken() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "default-insecure-token"
+	}
+	return hex.EncodeToString(bytes)
+}
+
+// authMiddleware проверяет аутентификацию для веб-интерфейса
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// API endpoints не требуют аутентификации (для интеграции)
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/metrics") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Статика не требует аутентификации
+		if strings.HasPrefix(r.URL.Path, "/static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Веб-интерфейс требует аутентификации
+		if strings.HasPrefix(r.URL.Path, "/web/") {
+			token := r.URL.Query().Get("token")
+			authHeader := r.Header.Get("Authorization")
+			
+			// Проверка токена
+			validToken := false
+			if token != "" && token == s.authToken {
+				validToken = true
+			}
+			if strings.HasPrefix(authHeader, "Bearer ") && authHeader[7:] == s.authToken {
+				validToken = true
+			}
+			
+			if !validToken {
+				// Перенаправляем на страницу входа
+				if r.URL.Path != "/web/login" {
+					http.Redirect(w, r, "/web/login", http.StatusTemporaryRedirect)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }
 
 // loadKeys загружает ключи из БД
@@ -1088,10 +1158,74 @@ func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
 // Web UI Handlers
 // ========================================
 
+// handleWebLogin — страница входа
+func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(`<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход - ChainDocs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%); }
+        .login-card { width: 100%; max-width: 400px; padding: 2rem; border-radius: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+    </style>
+</head>
+<body>
+    <div class="card login-card">
+        <div class="card-body">
+            <div class="text-center mb-4">
+                <h1 class="h3"><i class="bi bi-shield-lock"></i> ChainDocs</h1>
+                <p class="text-muted">Вход в систему</p>
+            </div>
+            <form method="POST" action="/web/login">
+                <div class="mb-3">
+                    <label for="token" class="form-label">Токен доступа</label>
+                    <input type="password" class="form-control" id="token" name="token" required 
+                           placeholder="Введите токен из CHAINDOCS_AUTH_TOKEN">
+                    <div class="form-text">
+                        Токен задается через переменную окружения<br>
+                        <code>CHAINDOCS_AUTH_TOKEN</code>
+                    </div>
+                </div>
+                <div id="error" class="alert alert-danger d-none"></div>
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-box-arrow-in-right"></i> Войти
+                </button>
+            </form>
+        </div>
+    </div>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('error') === 'invalid') {
+            document.getElementById('error').textContent = 'Неверный токен';
+            document.getElementById('error').classList.remove('d-none');
+        }
+    </script>
+</body>
+</html>`))
+}
+
+// handleWebLoginSubmit — обработка входа
+func (s *Server) handleWebLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	token := r.FormValue("token")
+	
+	if token == s.authToken {
+		// Перенаправляем на главную с токеном
+		http.Redirect(w, r, "/web/?token="+url.QueryEscape(token), http.StatusSeeOther)
+	} else {
+		// Неверный токен
+		http.Redirect(w, r, "/web/login?error=invalid", http.StatusSeeOther)
+	}
+}
+
 type PageData struct {
 	Title string
 	Page  string
 	Hash  string
+	Token string
 }
 
 // handleWebDashboard - главная страница
