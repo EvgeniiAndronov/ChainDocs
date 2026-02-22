@@ -28,7 +28,14 @@ fi
 echo ""
 echo "📋 Загрузка публичных ключей..."
 if [ -f "demo/demo-keys/public_keys.txt" ]; then
-    source demo/demo-keys/public_keys.txt
+    # Используем set -a для экспорта переменных из файла
+    set -a
+    . demo/demo-keys/public_keys.txt
+    set +a
+    echo "  ✅ Ключи загружены"
+    echo "  CLIENT1: ${CLIENT1_PUBLIC_KEY:0:16}..."
+    echo "  CLIENT2: ${CLIENT2_PUBLIC_KEY:0:16}..."
+    echo "  CLIENT3: ${CLIENT3_PUBLIC_KEY:0:16}..."
 else
     echo "❌ Файл public_keys.txt не найден!"
     echo "Запустите: ./demo/demo-setup.sh"
