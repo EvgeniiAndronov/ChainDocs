@@ -16,7 +16,47 @@ export CHAINDOCS_AUTH_TOKEN="demo_token"
 SERVER_PID=$!
 echo "✅ Сервер запущен (PID: $SERVER_PID)"
 
-sleep 2
+sleep 3
+
+# Проверка что сервер работает
+if ! curl -s http://localhost:8080/api/blocks/last > /dev/null 2>&1; then
+    echo "❌ Сервер не запустился!"
+    exit 1
+fi
+
+# Загрузка публичных ключей
+echo ""
+echo "📋 Загрузка публичных ключей..."
+if [ -f "demo/demo-keys/public_keys.txt" ]; then
+    source demo/demo-keys/public_keys.txt
+else
+    echo "❌ Файл public_keys.txt не найден!"
+    echo "Запустите: ./demo/demo-setup.sh"
+    exit 1
+fi
+
+# Регистрация ключей
+echo ""
+echo "🔑 Регистрация ключей на сервере..."
+
+register_key() {
+    local key=$1
+    local name=$2
+    result=$(curl -s -X POST http://localhost:8080/api/register \
+      -H "Content-Type: application/json" \
+      -d "{\"public_key\":\"$key\"}" | jq -r '.status')
+    if [ "$result" = "registered" ]; then
+        echo "  ✅ $name зарегистрирован"
+    else
+        echo "  ❌ $name не зарегистрирован: $result"
+    fi
+}
+
+register_key "$CLIENT1_PUBLIC_KEY" "Client 1"
+register_key "$CLIENT2_PUBLIC_KEY" "Client 2"
+register_key "$CLIENT3_PUBLIC_KEY" "Client 3"
+
+echo "✅ Ключи зарегистрированы"
 
 # Запуск клиентов
 echo ""
