@@ -1,0 +1,659 @@
+openapi: 3.0.3
+info:
+  title: ChainDocs API
+  description: |
+    Блокчейн-система документооборота с криптографической подписью и консенсусом.
+    
+    ## Возможности
+    - Загрузка документов с криптографической подписью
+    - Мульти-подписи блоков (консенсус 51%+)
+    - Категории документов
+    - Activity tracking ключей
+    - Self-healing (отзыв ключей)
+  version: 1.1.0
+  contact:
+    name: ChainDocs Support
+    url: https://github.com/EvgeniiAndronov/ChainDocs
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://chaindocs.example.com
+    description: Production server
+
+tags:
+  - name: Blocks
+    description: Операции с блоками блокчейна
+  - name: Documents
+    description: Загрузка и получение документов
+  - name: Categories
+    description: Категории документов
+  - name: Keys
+    description: Управление ключами
+  - name: Signatures
+    description: Подписи блоков
+  - name: Monitoring
+    description: Метрики и мониторинг
+
+paths:
+  /api/blocks:
+    get:
+      tags: [Blocks]
+      summary: Получить все блоки
+      operationId: getAllBlocks
+      responses:
+        '200':
+          description: Список всех блоков
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Block'
+
+  /api/blocks/last:
+    get:
+      tags: [Blocks]
+      summary: Получить последний блок
+      operationId: getLastBlock
+      responses:
+        '200':
+          description: Последний блок
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Block'
+
+  /api/blocks/{hash}:
+    get:
+      tags: [Blocks]
+      summary: Получить блок по хэшу
+      operationId: getBlockByHash
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Блок по хэшу
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Block'
+        '404':
+          description: Блок не найден
+
+  /api/blocks/{hash}/consensus:
+    get:
+      tags: [Blocks]
+      summary: Статус консенсуса блока
+      operationId: getBlockConsensus
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Статус консенсуса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsensusStatus'
+
+  /api/upload:
+    post:
+      tags: [Documents]
+      summary: Загрузить документ
+      operationId: uploadDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF файл
+                document_signature:
+                  type: string
+                  description: Подпись хэша документа (hex)
+                public_key:
+                  type: string
+                  description: Публичный ключ владельца (hex)
+                category:
+                  type: string
+                  description: ID категории
+      responses:
+        '201':
+          description: Документ загружен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: Ошибка валидации
+        '401':
+          description: Неверная подпись
+
+  /api/upload/bulk:
+    post:
+      tags: [Documents]
+      summary: Массовая загрузка документов
+      operationId: bulkUploadDocuments
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                category:
+                  type: string
+      responses:
+        '201':
+          description: Загрузка завершена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkUploadResponse'
+
+  /api/documents/{hash}:
+    get:
+      tags: [Documents]
+      summary: Скачать документ
+      operationId: getDocument
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PDF файл
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Документ не найден
+
+  /api/categories:
+    get:
+      tags: [Categories]
+      summary: Получить все категории
+      operationId: getAllCategories
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoriesResponse'
+    post:
+      tags: [Categories]
+      summary: Создать категорию
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Категория создана
+        '400':
+          description: Ошибка валидации
+
+  /api/categories/{id}:
+    get:
+      tags: [Categories]
+      summary: Получить категорию
+      operationId: getCategory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Категория
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          description: Категория не найдена
+    delete:
+      tags: [Categories]
+      summary: Удалить категорию
+      operationId: deleteCategory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Категория удалена
+        '404':
+          description: Категория не найдена
+
+  /api/categories/{id}/documents:
+    get:
+      tags: [Categories]
+      summary: Документы категории
+      operationId: getCategoryDocuments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Документы категории
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryDocumentsResponse'
+
+  /api/keys:
+    get:
+      tags: [Keys]
+      summary: Зарегистрированные ключи
+      operationId: getKeys
+      responses:
+        '200':
+          description: Список ключей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeysResponse'
+
+  /api/keys/active:
+    get:
+      tags: [Keys]
+      summary: Активные ключи
+      operationId: getActiveKeys
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "24h"
+      responses:
+        '200':
+          description: Активные ключи
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveKeysResponse'
+
+  /api/keys/revoked:
+    get:
+      tags: [Keys]
+      summary: Отозванные ключи
+      operationId: getRevokedKeys
+      responses:
+        '200':
+          description: Отозванные ключи
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokedKeysResponse'
+
+  /api/register:
+    post:
+      tags: [Keys]
+      summary: Зарегистрировать ключ
+      operationId: registerKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public_key:
+                  type: string
+      responses:
+        '200':
+          description: Ключ зарегистрирован
+        '400':
+          description: Ошибка валидации
+
+  /api/revoke:
+    post:
+      tags: [Keys]
+      summary: Отозвать ключ
+      operationId: revokeKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeKeyRequest'
+      responses:
+        '200':
+          description: Ключ отозван
+        '400':
+          description: Ошибка валидации
+        '401':
+          description: Неверная подпись
+
+  /api/sign:
+    post:
+      tags: [Signatures]
+      summary: Подписать блок
+      operationId: signBlock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignBlockRequest'
+      responses:
+        '200':
+          description: Подпись сохранена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignBlockResponse'
+        '400':
+          description: Ошибка валидации
+        '401':
+          description: Неверная подпись
+
+  /metrics:
+    get:
+      tags: [Monitoring]
+      summary: Prometheus метрики
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus метрики
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  schemas:
+    Block:
+      type: object
+      properties:
+        height:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        prev_hash:
+          type: string
+        document_hash:
+          type: string
+        document_signature:
+          $ref: '#/components/schemas/DocumentSignature'
+        signatures:
+          type: array
+          items:
+            $ref: '#/components/schemas/Signature'
+        hash:
+          type: string
+
+    Signature:
+      type: object
+      properties:
+        public_key:
+          type: string
+        signature:
+          type: string
+        timestamp:
+          type: string
+
+    DocumentSignature:
+      type: object
+      properties:
+        public_key:
+          type: string
+        signature:
+          type: string
+        timestamp:
+          type: string
+
+    ConsensusStatus:
+      type: object
+      properties:
+        block_hash:
+          type: string
+        height:
+          type: integer
+        total_keys:
+          type: integer
+        active_keys:
+          type: integer
+        signatures:
+          type: integer
+        required:
+          type: integer
+        percent:
+          type: number
+        consensus_reached:
+          type: boolean
+
+    UploadResponse:
+      type: object
+      properties:
+        hash:
+          type: string
+        filename:
+          type: string
+        size:
+          type: integer
+        uploaded:
+          type: string
+          format: date-time
+        block_hash:
+          type: string
+        document_signature:
+          $ref: '#/components/schemas/DocumentSignature'
+
+    BulkUploadResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        success:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              hash:
+                type: string
+              block_hash:
+                type: string
+              size:
+                type: integer
+              success:
+                type: boolean
+              error:
+                type: string
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        created:
+          type: string
+          format: date-time
+        doc_count:
+          type: integer
+
+    CategoriesResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
+    CreateCategoryRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+
+    CategoryDocumentsResponse:
+      type: object
+      properties:
+        category:
+          type: string
+        count:
+          type: integer
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentMetadata'
+
+    DocumentMetadata:
+      type: object
+      properties:
+        hash:
+          type: string
+        filename:
+          type: string
+        category:
+          type: string
+        size:
+          type: integer
+        uploaded:
+          type: string
+        block_hash:
+          type: string
+        owner:
+          type: string
+
+    KeysResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        keys:
+          type: array
+          items:
+            type: string
+
+    ActiveKeysResponse:
+      type: object
+      properties:
+        window:
+          type: string
+        count:
+          type: integer
+        activities:
+          type: array
+          items:
+            $ref: '#/components/schemas/KeyActivity'
+
+    KeyActivity:
+      type: object
+      properties:
+        public_key:
+          type: string
+        last_seen:
+          type: string
+        block_count:
+          type: integer
+
+    RevokedKeysResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevocationInfo'
+
+    RevocationInfo:
+      type: object
+      properties:
+        public_key:
+          type: string
+        reason:
+          type: string
+        revoked_at:
+          type: string
+
+    RevokeKeyRequest:
+      type: object
+      required: [public_key, new_public_key, new_signature]
+      properties:
+        public_key:
+          type: string
+        new_public_key:
+          type: string
+        new_signature:
+          type: string
+        reason:
+          type: string
+
+    SignBlockRequest:
+      type: object
+      required: [block_hash, signature, public_key]
+      properties:
+        block_hash:
+          type: string
+        signature:
+          type: string
+        public_key:
+          type: string
+
+    SignBlockResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        signatures:
+          type: integer
+        required:
+          type: integer
+        percent:
+          type: number
+        consensus:
+          type: boolean
+        active_keys:
+          type: integer

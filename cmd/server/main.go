@@ -137,6 +137,7 @@ func main() {
 	r.Post("/api/register", srv.handleRegisterKey)
 	r.Post("/api/sign", srv.handleSignature)
 	r.Post("/api/upload", srv.handleUpload)
+	r.Post("/api/upload/bulk", srv.handleBulkUpload)
 	r.Get("/api/documents/{hash}", srv.handleGetDocument)
 	r.Get("/api/keys", srv.handleGetKeys)
 	r.Post("/api/revoke", srv.handleRevokeKey)
@@ -650,6 +651,141 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 
 	// Отдаем файл
 	http.ServeFile(w, r, filePath)
+}
+
+// handleBulkUpload - массовая загрузка файлов
+func (s *Server) handleBulkUpload(w http.ResponseWriter, r *http.Request) {
+	// Создаем директорию для загрузок, если нет
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "Failed to create upload directory", http.StatusInternalServerError)
+		return
+	}
+
+	// Парсим multipart форму (макс 100MB для bulk)
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// Получаем категорию (опционально)
+	category := r.FormValue("category")
+	
+	// Получаем все файлы
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		http.Error(w, "No files provided", http.StatusBadRequest)
+		return
+	}
+
+	// Результат загрузки
+	type UploadResult struct {
+		Filename  string `json:"filename"`
+		Hash      string `json:"hash"`
+		BlockHash string `json:"block_hash"`
+		Size      int64  `json:"size"`
+		Success   bool   `json:"success"`
+		Error     string `json:"error,omitempty"`
+	}
+
+	results := make([]UploadResult, 0, len(files))
+	successCount := 0
+
+	for _, fileHeader := range files {
+		result := UploadResult{
+			Filename: fileHeader.Filename,
+			Size:     fileHeader.Size,
+			Success:  false,
+		}
+
+		// Проверяем расширение
+		if ext := filepath.Ext(fileHeader.Filename); ext != ".pdf" && ext != ".PDF" {
+			result.Error = "Only PDF files allowed"
+			results = append(results, result)
+			continue
+		}
+
+		// Открываем файл
+		file, err := fileHeader.Open()
+		if err != nil {
+			result.Error = "Failed to open file"
+			results = append(results, result)
+			continue
+		}
+
+		// Читаем файл
+		data, err := io.ReadAll(file)
+		file.Close()
+		if err != nil {
+			result.Error = "Failed to read file"
+			results = append(results, result)
+			continue
+		}
+
+		// Вычисляем хэш
+		hash := sha256.Sum256(data)
+		hashHex := hex.EncodeToString(hash[:])
+		result.Hash = hashHex
+
+		// Сохраняем файл
+		filePath := filepath.Join(uploadDir, hashHex+".pdf")
+		if err := os.WriteFile(filePath, data, 0644); err != nil {
+			result.Error = "Failed to save file"
+			results = append(results, result)
+			continue
+		}
+
+		// Создаем блок
+		last, err := s.db.GetLastBlock()
+		if err != nil {
+			result.Error = "Failed to get last block"
+			results = append(results, result)
+			continue
+		}
+
+		newBlock := block.NewBlock(last.Height+1, last.Hash, hash)
+
+		// Сохраняем блок
+		if err := s.db.SaveBlock(newBlock); err != nil {
+			result.Error = "Failed to save block"
+			results = append(results, result)
+			continue
+		}
+
+		result.BlockHash = hex.EncodeToString(newBlock.Hash[:])
+		result.Success = true
+		successCount++
+
+		// Сохраняем метаданные с категорией
+		meta := storage.DocumentMetadata{
+			Hash:      hashHex,
+			Filename:  fileHeader.Filename,
+			Category:  category,
+			Size:      fileHeader.Size,
+			Uploaded:  time.Now().UTC().Format(time.RFC3339),
+			BlockHash: result.BlockHash,
+		}
+		s.db.SaveDocumentMetadataWithCategory(meta)
+
+		if category != "" {
+			s.db.IncrementCategoryDocCount(category)
+		}
+
+		results = append(results, result)
+		logger.Info("📄 Bulk uploaded: %s (%d bytes), hash: %s, category: %s", 
+			fileHeader.Filename, fileHeader.Size, hashHex[:16], category)
+	}
+
+	logger.Info("📦 Bulk upload completed: %d/%d files successful", successCount, len(files))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total":    len(files),
+		"success":  successCount,
+		"failed":   len(files) - successCount,
+		"results":  results,
+		"category": category,
+	})
 }
 
 // handleGetConsensus - получение статуса консенсуса для блока
