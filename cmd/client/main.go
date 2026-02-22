@@ -60,7 +60,7 @@ func main() {
 		config.Server = *serverURL
 		config.KeyFile = *keyFile
 		config.Mode = *mode
-		config.Daemon.Interval = *interval
+		config.Daemon.Interval = Duration(*interval)
 		if *passwordEnv != "" {
 			config.PasswordEnv = *passwordEnv
 		}
@@ -109,10 +109,10 @@ func (c *Client) runDaemon() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(c.config.Daemon.Interval)
+	ticker := time.NewTicker(time.Duration(c.config.Daemon.Interval))
 	defer ticker.Stop()
 
-	c.logger.Printf("⏰ Check interval: %v", c.config.Daemon.Interval)
+	c.logger.Printf("⏰ Check interval: %v", time.Duration(c.config.Daemon.Interval))
 	c.logger.Printf("🔑 Public key: %s...", c.publicKeyHex[:16])
 
 	for {

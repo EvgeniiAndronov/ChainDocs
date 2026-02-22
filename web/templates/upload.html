@@ -126,7 +126,7 @@
 </div>
 
 <!-- Upload Result Modal -->
-<div class="modal fade" id="resultModal" tabindex="-1" x-data="resultModal()">
+<div class="modal fade" id="resultModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content" style="background: #1a1d20; border: 1px solid rgba(255,255,255,0.1);">
             <div class="modal-header">
@@ -139,27 +139,27 @@
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <small class="text-muted">Хэш документа</small>
-                        <div class="hash hash-short" x-text="result.hash"></div>
+                        <div class="hash hash-short" x-text="uploadData().result.hash"></div>
                     </div>
                     <div class="col-md-6 mb-3">
                         <small class="text-muted">Хэш блока</div>
-                        <div class="hash hash-short" x-text="result.block_hash"></div>
+                        <div class="hash hash-short" x-text="uploadData().result.block_hash"></div>
                     </div>
                 </div>
                 <div class="mb-3">
                     <small class="text-muted">Имя файла</small>
-                    <div x-text="result.filename"></div>
+                    <div x-text="uploadData().result.filename"></div>
                 </div>
                 <div class="mb-3">
                     <small class="text-muted">Размер</small>
-                    <div x-text="formatFileSize(result.size)"></div>
+                    <div x-text="uploadData().formatFileSize(uploadData().result.size)"></div>
                 </div>
             </div>
             <div class="modal-footer">
-                <a :href="'/web/blocks/' + result.block_hash" class="btn btn-primary">
+                <a :href="'/web/blocks/' + uploadData().result.block_hash" class="btn btn-primary">
                     <i class="bi bi-eye"></i> Просмотреть блок
                 </a>
-                <a :href="'/api/documents/' + result.hash" class="btn btn-outline-secondary" download>
+                <a :href="'/api/documents/' + uploadData().result.hash" class="btn btn-outline-secondary" download>
                     <i class="bi bi-download"></i> Скачать
                 </a>
             </div>
@@ -170,13 +170,14 @@
 
 {{define "scripts"}}
 <script>
-function uploadData() {
-    return {
+document.addEventListener('alpine:init', () => {
+    Alpine.data('uploadData', () => ({
         selectedFile: null,
         uploading: false,
         message: '',
         alertClass: 'alert-info',
         showInfo: true,
+        result: { hash: '', block_hash: '', filename: '', size: 0 },
         
         handleFileSelect(event) {
             this.selectedFile = event.target.files[0];
@@ -210,7 +211,8 @@ function uploadData() {
                 }
                 
                 const result = await response.json();
-                this.showResult(result);
+                this.result = result;
+                this.showResult();
                 
             } catch (error) {
                 this.message = 'Ошибка: ' + error.message;
@@ -220,26 +222,11 @@ function uploadData() {
             }
         },
         
-        showResult(result) {
-            window.resultModalData.result = result;
+        showResult() {
             const modal = new bootstrap.Modal(document.getElementById('resultModal'));
             modal.show();
         }
-    }
-}
-
-function resultModal() {
-    return {
-        result: { hash: '', block_hash: '', filename: '', size: 0 },
-        
-        formatFileSize(bytes) {
-            if (!bytes) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        }
-    }
-}
+    }));
+});
 </script>
 {{end}}

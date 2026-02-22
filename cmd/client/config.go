@@ -7,6 +7,34 @@ import (
 	"time"
 )
 
+// Duration - кастомный тип для парсинга времени из JSON
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value))
+		return nil
+	case string:
+		tmp, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(tmp)
+		return nil
+	default:
+		return fmt.Errorf("invalid duration")
+	}
+}
+
 // Config представляет конфигурацию клиента
 type Config struct {
 	// Server - адрес сервера (например, http://localhost:8080)
@@ -34,7 +62,7 @@ type Config struct {
 // DaemonConfig настройки демон-режима
 type DaemonConfig struct {
 	// Interval - интервал проверки новых блоков (например, "10s", "1m")
-	Interval time.Duration `json:"interval"`
+	Interval Duration `json:"interval"`
 	
 	// MaxBlocksPerCycle - максимум блоков для обработки за один цикл (0 = без ограничений)
 	MaxBlocksPerCycle int `json:"max_blocks_per_cycle"`
@@ -81,7 +109,7 @@ func DefaultConfig() *Config {
 		PasswordEnv: "CHAINDOCS_KEY_PASSWORD",
 		Mode:        "oneshot",
 		Daemon: DaemonConfig{
-			Interval:          10 * time.Second,
+			Interval:          Duration(10 * time.Second),
 			MaxBlocksPerCycle: 0,
 			SignUnsignedOnly:  true,
 			StopOnConsensus:   true,
