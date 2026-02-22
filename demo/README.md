@@ -60,7 +60,7 @@ curl -X POST http://localhost:8080/api/upload \
 
 ```bash
 # Получите хэш последнего блока
-BLOCK_HASH=
+BLOCK_HASH=8c1b0478dfb795b14efc1cc026ca6496a591d3e65b85e8bbdf8cadfbd54fcc07
 
 # Проверьте статус консенсуса
 curl -s "http://localhost:8080/api/blocks/$BLOCK_HASH/consensus" | jq

@@ -23,8 +23,21 @@ echo "ChainDocs Demo Setup"
 echo "=================================="
 echo ""
 
-# Создание директорий
-log_info "Создание директорий..."
+# Очистка предыдущей демонстрации
+log_info "Очистка предыдущей демонстрации..."
+pkill -f "demo/bin/server" 2>/dev/null || true
+pkill -f "demo/bin/client" 2>/dev/null || true
+sleep 1
+
+rm -f demo/demo_blockchain.db
+rm -f blockchain.db
+rm -rf demo/demo-keys
+rm -rf demo/demo_uploads/*
+rm -rf demo/demo_logs/*
+rm -f demo/demo-test-document.txt
+rm -f /tmp/demo-*.txt
+rm -f /tmp/key*.log
+log_ok "Предыдущая демонстрация очищена"
 mkdir -p demo/demo-keys
 mkdir -p demo/demo_uploads
 mkdir -p demo/demo_logs

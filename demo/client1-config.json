@@ -1,6 +1,6 @@
 {
   "server": "http://localhost:8080",
-  "key_file": "demo-keys/client1.enc",
+  "key_file": "demo/demo-keys/client1.enc",
   "password_env": "CHAINDOCS_CLIENT1_PASSWORD",
   "mode": "daemon",
   "daemon": {
