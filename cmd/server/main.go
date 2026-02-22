@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -28,7 +27,6 @@ type Server struct {
 	db      *storage.Storage
 	pubKeys map[string]bool // зарегистрированные ключи
 	mu      sync.RWMutex
-	templates *template.Template
 }
 
 func main() {
@@ -117,23 +115,7 @@ func NewServer(store *storage.Storage) (*Server, error) {
 		return nil, err
 	}
 
-	// Загружаем шаблоны
-	if err := s.loadTemplates(); err != nil {
-		log.Printf("⚠️  Warning: Failed to load templates: %v", err)
-	}
-
 	return s, nil
-}
-
-// loadTemplates загружает HTML шаблоны
-func (s *Server) loadTemplates() error {
-	tmpl, err := template.ParseGlob("web/templates/*.html")
-	if err != nil {
-		return err
-	}
-	s.templates = tmpl
-	log.Println("📄 Templates loaded")
-	return nil
 }
 
 // loadKeys загружает ключи из БД
@@ -725,74 +707,26 @@ type PageData struct {
 
 // handleWebDashboard - главная страница
 func (s *Server) handleWebDashboard(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-	
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.templates.ExecuteTemplate(w, "base.html", PageData{
-		Title: "Dashboard",
-		Page:  "dashboard",
-	})
+	http.ServeFile(w, r, "web/templates/dashboard.html")
 }
 
 // handleWebBlocks - список блоков
 func (s *Server) handleWebBlocks(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-	
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.templates.ExecuteTemplate(w, "base.html", PageData{
-		Title: "Блоки",
-		Page:  "blocks",
-	})
+	http.ServeFile(w, r, "web/templates/blocks.html")
 }
 
 // handleWebBlock - детали блока
 func (s *Server) handleWebBlock(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-	
-	hash := chi.URLParam(r, "hash")
-	
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.templates.ExecuteTemplate(w, "base.html", PageData{
-		Title: "Блок",
-		Page:  "block",
-		Hash:  hash,
-	})
+	http.ServeFile(w, r, "web/templates/block.html")
 }
 
 // handleWebUpload - загрузка документа
 func (s *Server) handleWebUpload(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-	
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.templates.ExecuteTemplate(w, "base.html", PageData{
-		Title: "Загрузить",
-		Page:  "upload",
-	})
+	http.ServeFile(w, r, "web/templates/upload.html")
 }
 
 // handleWebKeys - управление ключами
 func (s *Server) handleWebKeys(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-	
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.templates.ExecuteTemplate(w, "base.html", PageData{
-		Title: "Ключи",
-		Page:  "keys",
-	})
+	http.ServeFile(w, r, "web/templates/keys.html")
 }
 

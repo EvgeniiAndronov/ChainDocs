@@ -1,198 +1,99 @@
-{{define "content"}}
-<div class="page-header pt-4">
-    <div class="d-flex justify-content-between align-items-center">
-        <div>
-            <h1 class="h2"><i class="bi bi-key"></i> Ключи</h1>
-            <p class="text-muted">Управление публичными ключами</p>
-        </div>
-        <a href="/web/keys/generate" class="btn btn-primary" target="_blank">
-            <i class="bi bi-plus-circle"></i> Сгенерировать ключ
-        </a>
-    </div>
-</div>
-
-<div class="row">
-    <!-- Active Keys -->
-    <div class="col-md-8">
-        <div class="card mb-4" x-data="keysData()" x-init="loadKeys()">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-shield-check"></i> Активные ключи</span>
-                <span class="badge bg-success" x-text="keys.length"></span>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-dark table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>Публичный ключ</th>
-                                <th>Статус</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="key in keys" :key="key">
-                                <tr>
-                                    <td>
-                                        <span class="hash hash-short" x-text="key"></span>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-success">
-                                            <i class="bi bi-check-circle"></i> Активен
-                                        </span>
-                                    </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-secondary" 
-                                                @click="copyToClipboard(key)"
-                                                title="Копировать">
-                                            <i class="bi bi-clipboard"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </template>
-                            <tr x-show="keys.length === 0">
-                                <td colspan="3" class="text-center py-4">
-                                    <i class="bi bi-key" style="font-size: 2rem; color: rgba(255,255,255,0.3);"></i>
-                                    <p class="text-muted mt-2 mb-0">Нет зарегистрированных ключей</p>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ключи - ChainDocs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <style>
+        .sidebar { min-height: 100vh; background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%); }
+        .nav-link { color: rgba(255,255,255,0.7); margin-bottom: 0.25rem; }
+        .nav-link:hover, .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); border-radius: 0.375rem; }
+        .nav-link i { margin-right: 0.5rem; }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
+        .hash { font-family: 'Courier New', monospace; font-size: 0.75rem; }
+        .main-content { padding: 2rem; }
+        .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
+        .logo i { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar p-3">
+                <div class="logo"><i class="bi bi-shield-lock"></i> ChainDocs</div>
+                <ul class="nav flex-column">
+                    <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузить</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
+                </ul>
+                <hr class="my-4" style="border-color: rgba(255,255,255,0.1)">
+                <div class="px-3"><small class="text-muted">Статус системы</small><div class="d-flex align-items-center mt-2"><div class="spinner-grow spinner-grow-sm text-success me-2"></div><span class="text-success">Онлайн</span></div></div>
+            </nav>
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="keysData()" x-init="loadKeys()">
+                <div class="page-header pt-4">
+                    <h1 class="h2"><i class="bi bi-key"></i> Ключи</h1>
+                    <p class="text-muted">Управление публичными ключами</p>
                 </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Revoked Keys -->
-    <div class="col-md-4">
-        <div class="card mb-4" x-data="revokedData()" x-init="loadRevoked()">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-shield-x"></i> Отозванные ключи</span>
-                <span class="badge bg-danger" x-text="revoked.length"></span>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-dark table-sm mb-0">
-                        <thead>
-                            <tr>
-                                <th>Ключ</th>
-                                <th>Причина</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="key in revoked" :key="key.public_key">
-                                <tr>
-                                    <td>
-                                        <span class="hash hash-short" 
-                                              :title="key.public_key"
-                                              x-text="key.public_key.substring(0, 12) + '...'"></span>
-                                    </td>
-                                    <td>
-                                        <small x-text="key.reason || '-'"></small>
-                                    </td>
-                                </tr>
-                            </template>
-                            <tr x-show="revoked.length === 0">
-                                <td colspan="2" class="text-center py-4">
-                                    <small class="text-muted">Нет отозванных ключей</small>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Info Card -->
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-info-circle"></i> Информация
-            </div>
-            <div class="card-body">
-                <h6>Консенсус 51%</h6>
-                <p class="text-muted small mb-3">
-                    Для подтверждения блока требуется подпись большинства зарегистрированных ключей (51%+).
-                </p>
-                
-                <h6>Отзыв ключа</h6>
-                <p class="text-muted small mb-3">
-                    Если ключ скомпрометирован, его можно отозвать подписав запрос новым ключом.
-                </p>
-                
-                <a href="/api/keys/revoked" target="_blank" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-api"></i> API
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Consensus Info -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-shield-check"></i> Статус консенсуса
-            </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-md-4">
-                        <h3 class="text-primary" x-text="keysDataInstance?.keys?.length || 0"></h3>
-                        <p class="text-muted">Зарегистрировано ключей</p>
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-shield-check"></i> Активные ключи</span>
+                                <span class="badge bg-success" x-text="keys.length"></span>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-hover mb-0">
+                                        <thead><tr><th>Публичный ключ</th><th>Статус</th></tr></thead>
+                                        <tbody>
+                                            <template x-for="key in keys" :key="key">
+                                                <tr>
+                                                    <td><span class="hash" x-text="key"></span></td>
+                                                    <td><span class="badge bg-success"><i class="bi bi-check-circle"></i> Активен</span></td>
+                                                </tr>
+                                            </template>
+                                            <tr x-show="keys.length === 0"><td colspan="2" class="text-center py-4"><small class="text-muted">Нет зарегистрированных ключей</small></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-md-4">
-                        <h3 class="text-success" x-text="Math.floor((keysDataInstance?.keys?.length || 0) / 2) + 1"></h3>
-                        <p class="text-muted">Требуется для консенсуса</p>
-                    </div>
-                    <div class="col-md-4">
-                        <h3 class="text-info">51%+</h3>
-                        <p class="text-muted">Порог консенсуса</p>
+                        <div class="card mb-4">
+                            <div class="card-header"><i class="bi bi-info-circle"></i> Информация</div>
+                            <div class="card-body">
+                                <h6>Консенсус 51%</h6>
+                                <p class="text-muted small">Для подтверждения блока требуется подпись большинства зарегистрированных ключей (51%+).</p>
+                                <div class="mt-3">
+                                    <h3 class="text-primary" x-text="Math.floor(keys.length / 2) + 1"></h3>
+                                    <small class="text-muted">Требуется подписей</small>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </main>
         </div>
     </div>
-</div>
-{{end}}
-
-{{define "scripts"}}
-<script>
-function keysData() {
-    return {
-        keys: [],
-        
-        async loadKeys() {
-            try {
-                const response = await fetch('/api/keys');
-                const data = await response.json();
-                this.keys = data.keys || [];
-                window.keysDataInstance = this;
-            } catch (e) {
-                console.error('Failed to load keys:', e);
-            }
-        },
-        
-        copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Ключ скопирован в буфер обмена');
-            });
-        }
-    }
-}
-
-function revokedData() {
-    return {
-        revoked: [],
-        
-        async loadRevoked() {
-            try {
-                const response = await fetch('/api/keys/revoked');
-                const data = await response.json();
-                this.revoked = data.keys || [];
-            } catch (e) {
-                console.error('Failed to load revoked keys:', e);
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function keysData() {
+        return {
+            keys: [],
+            async loadKeys() {
+                try {
+                    const response = await fetch('/api/keys');
+                    const data = await response.json();
+                    this.keys = data.keys || [];
+                } catch (e) { console.error('Failed to load keys:', e); }
             }
         }
     }
-}
-</script>
-{{end}}
+    </script>
+</body>
+</html>

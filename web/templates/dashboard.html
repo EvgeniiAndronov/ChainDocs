@@ -1,284 +1,294 @@
-{{define "content"}}
-<div class="page-header pt-4">
-    <h1 class="h2"><i class="bi bi-speedometer2"></i> Dashboard</h1>
-    <p class="text-muted">Обзор блокчейн-системы документооборота</p>
-</div>
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ChainDocs</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%);
+        }
+        .nav-link { color: rgba(255,255,255,0.7); margin-bottom: 0.25rem; }
+        .nav-link:hover, .nav-link.active {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+            border-radius: 0.375rem;
+        }
+        .nav-link i { margin-right: 0.5rem; }
+        .card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .hash { font-family: 'Courier New', monospace; font-size: 0.85rem; }
+        .hash-short { color: #0d6efd; }
+        .consensus-progress { height: 8px; }
+        .signature-item {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+        .main-content { padding: 2rem; }
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #fff;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .logo i { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar p-3">
+                <div class="logo">
+                    <i class="bi bi-shield-lock"></i> ChainDocs
+                </div>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/web/">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/web/blocks">
+                            <i class="bi bi-layers"></i> Блоки
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/web/upload">
+                            <i class="bi bi-cloud-upload"></i> Загрузить
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/web/keys">
+                            <i class="bi bi-key"></i> Ключи
+                        </a>
+                    </li>
+                </ul>
+                <hr class="my-4" style="border-color: rgba(255,255,255,0.1)">
+                <div class="px-3">
+                    <small class="text-muted">Статус системы</small>
+                    <div class="d-flex align-items-center mt-2">
+                        <div class="spinner-grow spinner-grow-sm text-success me-2"></div>
+                        <span class="text-success">Онлайн</span>
+                    </div>
+                </div>
+            </nav>
+            
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="statsData()" x-init="loadStats()">
+                <div class="page-header pt-4">
+                    <h1 class="h2"><i class="bi bi-speedometer2"></i> Dashboard</h1>
+                    <p class="text-muted">Обзор блокчейн-системы документооборота</p>
+                </div>
 
-<!-- Stats Row -->
-<div class="row mb-4" x-data="statsData()" x-init="loadStats()">
-    <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-1">Всего блоков</h6>
-                        <h3 class="mb-0" x-text="stats.blocks">-</h3>
-                    </div>
-                    <div class="text-primary">
-                        <i class="bi bi-layers-fill" style="font-size: 2rem;"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-1">Зарег. ключей</h6>
-                        <h3 class="mb-0" x-text="stats.keys">-</h3>
-                    </div>
-                    <div class="text-success">
-                        <i class="bi bi-key-fill" style="font-size: 2rem;"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-1">Документов</h6>
-                        <h3 class="mb-0" x-text="stats.documents">-</h3>
-                    </div>
-                    <div class="text-info">
-                        <i class="bi bi-file-earmark-text-fill" style="font-size: 2rem;"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-1">Отозвано ключей</h6>
-                        <h3 class="mb-0" x-text="stats.revoked">-</h3>
-                    </div>
-                    <div class="text-danger">
-                        <i class="bi bi-shield-x" style="font-size: 2rem;"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Last Block -->
-<div class="row mb-4">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-box"></i> Последний блок</span>
-                <a :href="'/web/blocks/' + lastBlock.hash" class="btn btn-sm btn-outline-primary">
-                    Подробнее <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
-            <div class="card-body" x-show="lastBlock.hash">
-                <div class="row">
-                    <div class="col-md-6">
-                        <table class="table table-dark table-sm">
-                            <tr>
-                                <td class="text-muted">Высота</td>
-                                <td><span class="hash" x-text="lastBlock.height"></span></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Хэш</td>
-                                <td><span class="hash hash-short" x-text="shortHash(lastBlock.hash)"></span></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Предыдущий</td>
-                                <td><span class="hash hash-short" x-text="shortHash(lastBlock.prev_hash)"></span></td>
-                            </tr>
-                            <tr>
-                                <td class="text-muted">Время</td>
-                                <td><span x-text="formatDate(lastBlock.timestamp)"></span></td>
-                            </tr>
-                        </table>
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="mb-3">Консенсус</h6>
-                        <div class="mb-2">
-                            <div class="d-flex justify-content-between mb-1">
-                                <small>Подписи</small>
-                                <small><span x-text="lastBlock.signatures?.length || 0"></span> / <span x-text="requiredSignatures()"></span></small>
-                            </div>
-                            <div class="progress consensus-progress">
-                                <div class="progress-bar bg-success" 
-                                     role="progressbar"
-                                     :style="'width: ' + consensusPercent() + '%'"></div>
+                <!-- Stats Row -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card stat-card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="text-muted mb-1">Всего блоков</h6>
+                                        <h3 class="mb-0" x-text="stats.blocks">-</h3>
+                                    </div>
+                                    <div class="text-primary">
+                                        <i class="bi bi-layers-fill" style="font-size: 2rem;"></i>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="mt-3">
-                            <span class="badge" 
-                                  :class="consensusReached() ? 'bg-success' : 'bg-warning'">
-                                <i :class="consensusReached() ? 'bi bi-check-circle' : 'bi bi-hourglass-split'"></i>
-                                <span x-text="consensusReached() ? 'Консенсус достигнут' : 'Ожидание подписей'"></span>
-                            </span>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stat-card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="text-muted mb-1">Зарег. ключей</h6>
+                                        <h3 class="mb-0" x-text="stats.keys">-</h3>
+                                    </div>
+                                    <div class="text-success">
+                                        <i class="bi bi-key-fill" style="font-size: 2rem;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stat-card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="text-muted mb-1">Документов</h6>
+                                        <h3 class="mb-0" x-text="stats.documents">-</h3>
+                                    </div>
+                                    <div class="text-info">
+                                        <i class="bi bi-file-earmark-text-fill" style="font-size: 2rem;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stat-card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="text-muted mb-1">Отозвано ключей</h6>
+                                        <h3 class="mb-0" x-text="stats.revoked">-</h3>
+                                    </div>
+                                    <div class="text-danger">
+                                        <i class="bi bi-shield-x" style="font-size: 2rem;"></i>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                
-                <div x-show="lastBlock.signatures && lastBlock.signatures.length > 0" class="mt-3">
-                    <h6>Подписи (<span x-text="lastBlock.signatures.length"></span>)</h6>
-                    <div class="d-flex flex-wrap gap-2">
-                        <template x-for="sig in lastBlock.signatures" :key="sig.public_key">
-                            <div class="signature-item">
-                                <i class="bi bi-pen text-success"></i>
-                                <span x-text="sig.public_key.substring(0, 16) + '...'"></span>
+
+                <!-- Last Block -->
+                <div class="row mb-4">
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-box"></i> Последний блок</span>
+                                <a :href="'/web/blocks/' + lastBlock.hash" class="btn btn-sm btn-outline-primary">
+                                    Подробнее <i class="bi bi-arrow-right"></i>
+                                </a>
                             </div>
-                        </template>
+                            <div class="card-body" x-show="lastBlock.hash">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <table class="table table-dark table-sm">
+                                            <tr>
+                                                <td class="text-muted">Высота</td>
+                                                <td><span class="hash" x-text="lastBlock.height"></span></td>
+                                            </tr>
+                                            <tr>
+                                                <td class="text-muted">Хэш</td>
+                                                <td><span class="hash hash-short" x-text="shortHash(lastBlock.hash)"></span></td>
+                                            </tr>
+                                            <tr>
+                                                <td class="text-muted">Время</td>
+                                                <td><span x-text="formatDate(lastBlock.timestamp)"></span></td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="mb-3">Консенсус</h6>
+                                        <div class="mb-2">
+                                            <div class="d-flex justify-content-between mb-1">
+                                                <small>Подписи</small>
+                                                <small><span x-text="lastBlock.signatures?.length || 0"></span> / <span x-text="requiredSignatures()"></span></small>
+                                            </div>
+                                            <div class="progress consensus-progress">
+                                                <div class="progress-bar bg-success" 
+                                                     role="progressbar"
+                                                     :style="'width: ' + consensusPercent() + '%'"></div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="badge" 
+                                                  :class="consensusReached() ? 'bg-success' : 'bg-warning'">
+                                                <i :class="consensusReached() ? 'bi bi-check-circle' : 'bi bi-hourglass-split'"></i>
+                                                <span x-text="consensusReached() ? 'Консенсус достигнут' : 'Ожидание подписей'"></span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div x-show="lastBlock.signatures && lastBlock.signatures.length > 0" class="mt-3">
+                                    <h6>Подписи (<span x-text="lastBlock.signatures.length"></span>)</h6>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <template x-for="sig in lastBlock.signatures" :key="sig.public_key">
+                                            <div class="signature-item">
+                                                <i class="bi bi-pen text-success"></i>
+                                                <span x-text="sig.public_key.substring(0, 16) + '...'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="card-body" x-show="!lastBlock.hash">
-                <div class="text-center py-4">
-                    <i class="bi bi-inbox" style="font-size: 3rem; color: rgba(255,255,255,0.3);"></i>
-                    <p class="text-muted mt-3">Блоков пока нет</p>
-                </div>
-            </div>
+            </main>
         </div>
     </div>
     
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-activity"></i> Активность
-            </div>
-            <div class="card-body">
-                <div class="d-flex align-items-center mb-3">
-                    <div class="bg-primary rounded-circle p-3 me-3">
-                        <i class="bi bi-cloud-upload text-white"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-0">Загрузка документов</h6>
-                        <small class="text-muted">Создаёт новый блок</small>
-                    </div>
-                </div>
-                <div class="d-flex align-items-center mb-3">
-                    <div class="bg-success rounded-circle p-3 me-3">
-                        <i class="bi bi-pen text-white"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-0">Подписание</h6>
-                        <small class="text-muted">Клиенты подписывают блоки</small>
-                    </div>
-                </div>
-                <div class="d-flex align-items-center">
-                    <div class="bg-info rounded-circle p-3 me-3">
-                        <i class="bi bi-shield-check text-white"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-0">Консенсус 51%</h6>
-                        <small class="text-muted">Подтверждение блока</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Quick Actions -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-lightning-charge"></i> Быстрые действия
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-3">
-                        <a href="/web/upload" class="btn btn-outline-primary w-100">
-                            <i class="bi bi-cloud-upload"></i> Загрузить документ
-                        </a>
-                    </div>
-                    <div class="col-md-3">
-                        <a href="/web/blocks" class="btn btn-outline-secondary w-100">
-                            <i class="bi bi-layers"></i> Просмотр блоков
-                        </a>
-                    </div>
-                    <div class="col-md-3">
-                        <a href="/web/keys" class="btn btn-outline-info w-100">
-                            <i class="bi bi-key"></i> Управление ключами
-                        </a>
-                    </div>
-                    <div class="col-md-3">
-                        <a href="/api/blocks/last" target="_blank" class="btn btn-outline-success w-100">
-                            <i class="bi bi-api"></i> API Blocks
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-{{end}}
-
-{{define "scripts"}}
-<script>
-function statsData() {
-    return {
-        stats: { blocks: 0, keys: 0, documents: 0, revoked: 0 },
-        lastBlock: {},
-        
-        async loadStats() {
-            try {
-                const [blocksRes, keysRes, lastRes] = await Promise.all([
-                    fetch('/api/blocks').then(r => r.json()),
-                    fetch('/api/keys').then(r => r.json()),
-                    fetch('/api/blocks/last').then(r => r.json())
-                ]);
-                
-                this.stats.blocks = blocksRes.length || 0;
-                this.stats.keys = keysRes.count || 0;
-                this.stats.documents = blocksRes.length > 0 ? blocksRes.length - 1 : 0; // минус генезис
-                
-                this.lastBlock = lastRes;
-                
-                // Загрузка отозванных ключей
-                fetch('/api/keys/revoked').then(r => r.json()).then(data => {
-                    this.stats.revoked = data.count || 0;
-                });
-            } catch (e) {
-                console.error('Failed to load stats:', e);
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+    function statsData() {
+        return {
+            stats: { blocks: 0, keys: 0, documents: 0, revoked: 0 },
+            lastBlock: {},
+            
+            async loadStats() {
+                try {
+                    const [blocksRes, keysRes, lastRes] = await Promise.all([
+                        fetch('/api/blocks').then(r => r.json()),
+                        fetch('/api/keys').then(r => r.json()),
+                        fetch('/api/blocks/last').then(r => r.json())
+                    ]);
+                    
+                    this.stats.blocks = blocksRes.length || 0;
+                    this.stats.keys = keysRes.count || 0;
+                    this.stats.documents = blocksRes.length > 0 ? blocksRes.length - 1 : 0;
+                    this.lastBlock = lastRes;
+                    
+                    fetch('/api/keys/revoked').then(r => r.json()).then(data => {
+                        this.stats.revoked = data.count || 0;
+                    });
+                } catch (e) {
+                    console.error('Failed to load stats:', e);
+                }
+            },
+            
+            shortHash(hash) {
+                if (!hash) return '';
+                return hash.substring(0, 16) + '...';
+            },
+            
+            formatDate(dateStr) {
+                if (!dateStr) return '';
+                return new Date(dateStr).toLocaleString('ru-RU');
+            },
+            
+            requiredSignatures() {
+                const keys = this.stats.keys;
+                if (keys === 0) return 0;
+                return Math.floor(keys / 2) + 1;
+            },
+            
+            consensusPercent() {
+                const sigs = this.lastBlock.signatures?.length || 0;
+                const req = this.requiredSignatures();
+                if (req === 0) return 0;
+                return Math.min(100, Math.round(sigs / req * 100));
+            },
+            
+            consensusReached() {
+                const sigs = this.lastBlock.signatures?.length || 0;
+                return sigs >= this.requiredSignatures();
             }
-        },
-        
-        shortHash(hash) {
-            if (!hash) return '';
-            return hash.substring(0, 16) + '...';
-        },
-        
-        formatDate(dateStr) {
-            if (!dateStr) return '';
-            return new Date(dateStr).toLocaleString('ru-RU');
-        },
-        
-        requiredSignatures() {
-            const keys = this.stats.keys;
-            if (keys === 0) return 0;
-            return Math.floor(keys / 2) + 1;
-        },
-        
-        consensusPercent() {
-            const sigs = this.lastBlock.signatures?.length || 0;
-            const req = this.requiredSignatures();
-            if (req === 0) return 0;
-            return Math.min(100, Math.round(sigs / req * 100));
-        },
-        
-        consensusReached() {
-            const sigs = this.lastBlock.signatures?.length || 0;
-            return sigs >= this.requiredSignatures();
         }
     }
-}
-</script>
-{{end}}
+    </script>
+</body>
+</html>
