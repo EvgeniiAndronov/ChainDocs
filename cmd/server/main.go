@@ -30,8 +30,14 @@ type Server struct {
 }
 
 func main() {
+	// Определяем путь к БД из переменной окружения или используем по умолчанию
+	dbPath := os.Getenv("CHAINDOCS_DB")
+	if dbPath == "" {
+		dbPath = "blockchain.db"
+	}
+
 	// Инициализируем хранилище
-	store, err := storage.New("blockchain.db")
+	store, err := storage.New(dbPath)
 	if err != nil {
 		log.Fatal("Failed to open storage:", err)
 	}
