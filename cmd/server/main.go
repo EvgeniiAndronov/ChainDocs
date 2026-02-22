@@ -222,24 +222,30 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Веб-интерфейс требует аутентификации
 		if strings.HasPrefix(r.URL.Path, "/web/") {
+			// Страница входа не требует аутентификации
+			if r.URL.Path == "/web/login" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Проверяем токен из разных источников
 			token := r.URL.Query().Get("token")
-			
+
 			// Проверяем cookie
 			if token == "" {
 				if cookie, err := r.Cookie("auth_token"); err == nil {
 					token = cookie.Value
 				}
 			}
-			
+
 			authHeader := r.Header.Get("Authorization")
 
 			// Проверка токена
 			validToken := false
 			if token != "" && token == s.authToken {
 				validToken = true
-				// Устанавливаем cookie если токена не было
-				if r.URL.Query().Get("token") != "" {
+				// Устанавливаем cookie если токена не было в cookie
+				if _, err := r.Cookie("auth_token"); err != nil {
 					http.SetCookie(w, &http.Cookie{
 						Name:     "auth_token",
 						Value:    token,
@@ -256,11 +262,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 			if !validToken {
 				// Перенаправляем на страницу входа
-				if r.URL.Path != "/web/login" {
-					http.Redirect(w, r, "/web/login", http.StatusTemporaryRedirect)
-					return
-				}
-				next.ServeHTTP(w, r)
+				http.Redirect(w, r, "/web/login", http.StatusTemporaryRedirect)
 				return
 			}
 		}
@@ -1230,18 +1232,24 @@ func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
 // handleWebLoginSubmit — обработка входа
 func (s *Server) handleWebLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
-	
+
 	if token == s.authToken {
 		// Устанавливаем cookie на 24 часа
-		http.SetCookie(w, &http.Cookie{
+		cookie := &http.Cookie{
 			Name:     "auth_token",
 			Value:    token,
 			Path:     "/web/",
 			MaxAge:   86400, // 24 часа
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
-		})
-		
+		}
+		http.SetCookie(w, cookie)
+
+		// Принудительно записываем cookie перед редиректом
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
 		// Перенаправляем на главную
 		http.Redirect(w, r, "/web/", http.StatusSeeOther)
 	} else {
