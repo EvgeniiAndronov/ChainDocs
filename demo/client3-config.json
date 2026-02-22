@@ -1,0 +1,23 @@
+{
+  "server": "http://localhost:8080",
+  "key_file": "demo-keys/client3.enc",
+  "password_env": "CHAINDOCS_CLIENT3_PASSWORD",
+  "mode": "daemon",
+  "daemon": {
+    "interval": "5s",
+    "max_blocks_per_cycle": 0,
+    "sign_unsigned_only": false,
+    "stop_on_consensus": false
+  },
+  "logging": {
+    "level": "info",
+    "file": "./demo_logs/client3.log",
+    "format": "text"
+  },
+  "self_healing": {
+    "enabled": true,
+    "alert_on_foreign_signature": true,
+    "alert_webhook": "",
+    "auto_revoke": false
+  }
+}
