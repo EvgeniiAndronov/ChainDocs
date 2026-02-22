@@ -1238,20 +1238,28 @@ func (s *Server) handleWebLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		cookie := &http.Cookie{
 			Name:     "auth_token",
 			Value:    token,
-			Path:     "/web/",
+			Path:     "/",
 			MaxAge:   86400, // 24 часа
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
+			Secure:   false, // Для HTTP (для production включить true)
 		}
 		http.SetCookie(w, cookie)
 
-		// Принудительно записываем cookie перед редиректом
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-
-		// Перенаправляем на главную
-		http.Redirect(w, r, "/web/", http.StatusSeeOther)
+		// Отправляем HTML с meta refresh вместо редиректа
+		// Это гарантирует что cookie запишется перед переходом
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="refresh" content="0;url=/web/">
+</head>
+<body>
+<script>window.location.href="/web/";</script>
+<p>Redirecting...</p>
+</body>
+</html>`)
 	} else {
 		// Неверный токен
 		http.Redirect(w, r, "/web/login?error=invalid", http.StatusSeeOther)
