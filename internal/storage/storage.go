@@ -28,11 +28,19 @@ var (
 	bucketMeta   = []byte("metadata")  // метаданные (последний блок и т.д.)
 	bucketPubKeys = []byte("pubkeys")  // зарегистрированные публичные ключи
 	bucketRevoked = []byte("revoked")  // отозванные ключи
+	bucketActivity = []byte("activity") // активность ключей (key -> last_seen timestamp)
 
 	// Ключи метаданных
 	keyLastHash   = []byte("last_hash")
 	keyLastHeight = []byte("last_height")
 )
+
+// KeyActivity информация об активности ключа
+type KeyActivity struct {
+	PublicKey string `json:"public_key"`
+	LastSeen  string `json:"last_seen"` // RFC3339 timestamp
+	BlockCount int64 `json:"block_count"` // количество подписанных блоков
+}
 
 type Storage struct {
 	db *bbolt.DB
@@ -59,6 +67,7 @@ func New(path string) (*Storage, error) {
 		tx.CreateBucketIfNotExists(bucketMeta)
 		tx.CreateBucketIfNotExists(bucketPubKeys)
 		tx.CreateBucketIfNotExists(bucketRevoked)
+		tx.CreateBucketIfNotExists(bucketActivity)
 		return nil
 	})
 
@@ -469,4 +478,95 @@ func (s *Storage) SaveDocumentMetadata(docHash string, filename string, size int
 
 		return bucket.Put([]byte(docHash), data)
 	})
+}
+
+// UpdateKeyActivity обновляет активность ключа (вызывается при подписи блока)
+func (s *Storage) UpdateKeyActivity(pubKey string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(bucketActivity)
+		if err != nil {
+			return err
+		}
+
+		// Получаем текущую активность
+		var activity KeyActivity
+		data := bucket.Get([]byte(pubKey))
+		if data != nil {
+			json.Unmarshal(data, &activity)
+		} else {
+			activity = KeyActivity{
+				PublicKey: pubKey,
+				BlockCount: 0,
+			}
+		}
+
+		// Обновляем
+		activity.LastSeen = time.Now().UTC().Format(time.RFC3339)
+		activity.BlockCount++
+
+		// Сохраняем
+		activityData, err := json.Marshal(activity)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put([]byte(pubKey), activityData)
+	})
+}
+
+// GetActiveKeys возвращает ключи, активные за последние duration
+func (s *Storage) GetActiveKeys(duration time.Duration) ([]KeyActivity, error) {
+	var activeKeys []KeyActivity
+	cutoff := time.Now().UTC().Add(-duration)
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketActivity)
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var activity KeyActivity
+			if err := json.Unmarshal(v, &activity); err != nil {
+				continue
+			}
+
+			lastSeen, err := time.Parse(time.RFC3339, activity.LastSeen)
+			if err != nil {
+				continue
+			}
+
+			if lastSeen.After(cutoff) {
+				activeKeys = append(activeKeys, activity)
+			}
+		}
+		return nil
+	})
+
+	return activeKeys, err
+}
+
+// GetAllKeyActivity возвращает всю активность ключей
+func (s *Storage) GetAllKeyActivity() ([]KeyActivity, error) {
+	var activities []KeyActivity
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketActivity)
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var activity KeyActivity
+			if err := json.Unmarshal(v, &activity); err != nil {
+				continue
+			}
+			activities = append(activities, activity)
+		}
+		return nil
+	})
+
+	return activities, err
 }

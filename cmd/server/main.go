@@ -95,6 +95,7 @@ func main() {
 	r.Get("/api/keys", srv.handleGetKeys)
 	r.Post("/api/revoke", srv.handleRevokeKey)
 	r.Get("/api/keys/revoked", srv.handleGetRevokedKeys)
+	r.Get("/api/keys/active", srv.handleGetActiveKeys)
 
 	// Static files
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
@@ -402,26 +403,42 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем консенсус
-	totalKeys := len(s.pubKeys)
+	// Обновляем активность ключа
+	s.db.UpdateKeyActivity(req.PublicKey)
+
+	// Проверяем консенсус (динамический расчёт)
+	activeKeys, _ := s.db.GetActiveKeys(24 * time.Hour)
+	totalKeys := len(activeKeys)
+	if totalKeys == 0 {
+		s.mu.RLock()
+		totalKeys = len(s.pubKeys)
+		s.mu.RUnlock()
+	}
+	
 	signed, required, percent := b.GetConsensusProgress(totalKeys)
+	
+	// Минимальный порог
+	if required < 2 {
+		required = 2
+	}
 	
 	log.Printf("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]", 
 		b.Height, req.PublicKey[:16], signed, required, percent)
 	
 	// Если консенсус достигнут
-	if b.ConsensusReached(totalKeys) {
+	if b.ConsensusReached(totalKeys) && signed >= required {
 		log.Printf("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)", 
 			b.Height, signed, required)
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "signature saved",
-		"signatures": signed,
-		"required":   required,
-		"percent":    percent,
-		"consensus":  b.ConsensusReached(totalKeys),
+		"status":      "signature saved",
+		"signatures":  signed,
+		"required":    required,
+		"percent":     percent,
+		"consensus":   b.ConsensusReached(totalKeys) && signed >= required,
+		"active_keys": len(activeKeys),
 	})
 }
 
@@ -556,23 +573,36 @@ func (s *Server) handleGetConsensus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	totalKeys := len(s.pubKeys)
-	s.mu.RUnlock()
+	// Динамический расчёт: используем активные ключи за 24 часа
+	activeKeys, _ := s.db.GetActiveKeys(24 * time.Hour)
+	totalKeys := len(activeKeys)
+	
+	// Если нет активных, используем все зарегистрированные
+	if totalKeys == 0 {
+		s.mu.RLock()
+		totalKeys = len(s.pubKeys)
+		s.mu.RUnlock()
+	}
 
 	signed, required, percent := b.GetConsensusProgress(totalKeys)
 	consensusReached := b.ConsensusReached(totalKeys)
+	
+	// Минимальный порог - 2 подписи
+	if required < 2 {
+		required = 2
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"block_hash":       hex.EncodeToString(b.Hash[:]),
-		"height":           b.Height,
-		"total_keys":       totalKeys,
-		"signatures":       signed,
-		"required":         required,
-		"percent":          percent,
+		"block_hash":        hex.EncodeToString(b.Hash[:]),
+		"height":            b.Height,
+		"total_keys":        totalKeys,
+		"active_keys":       len(activeKeys),
+		"signatures":        signed,
+		"required":          required,
+		"percent":           percent,
 		"consensus_reached": consensusReached,
-		"signatures_list":  b.Signatures,
+		"signatures_list":   b.Signatures,
 	})
 }
 
@@ -692,6 +722,32 @@ func (s *Server) handleGetRevokedKeys(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"count": len(keys),
 		"keys":  keys,
+	})
+}
+
+// handleGetActiveKeys - получение списка активных ключей
+func (s *Server) handleGetActiveKeys(w http.ResponseWriter, r *http.Request) {
+	// По умолчанию 24 часа
+	window := 24 * time.Hour
+	
+	// Можно переопределить через query параметр
+	if windowStr := r.URL.Query().Get("window"); windowStr != "" {
+		if d, err := time.ParseDuration(windowStr); err == nil {
+			window = d
+		}
+	}
+	
+	activities, err := s.db.GetActiveKeys(window)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"window":     window.String(),
+		"count":      len(activities),
+		"activities": activities,
 	})
 }
 

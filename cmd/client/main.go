@@ -150,9 +150,13 @@ func (c *Client) processOnce() error {
 		// Проверяем, достигнут ли консенсус
 		consensusStatus, err := c.getConsensusStatus(lastBlock.Hash)
 		if err == nil && consensusStatus.ConsensusReached {
-			c.logger.Printf("✅ Consensus reached for block %d (%d/%d)", 
-				lastBlock.Height, consensusStatus.Signatures, consensusStatus.Required)
-			return nil
+			// Если консенсус достигнут, но есть возможность собрать больше подписей
+			// и мы ещё не подписывали - можно подписать для надёжности
+			if consensusStatus.Signatures >= consensusStatus.Required {
+				c.logger.Printf("✅ Consensus reached for block %d (%d/%d), skipping", 
+					lastBlock.Height, consensusStatus.Signatures, consensusStatus.Required)
+				return nil
+			}
 		}
 	}
 
