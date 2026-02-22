@@ -1,0 +1,208 @@
+{{define "content"}}
+<div class="page-header pt-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="h2"><i class="bi bi-box"></i> Блок</h1>
+            <p class="text-muted">Детали блока <span class="hash hash-short" x-text="block.hash?.substring(0, 16)"></span></p>
+        </div>
+        <a href="/web/blocks" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Назад
+        </a>
+    </div>
+</div>
+
+<div x-data="blockData('{{.Hash}}')" x-init="loadBlock()">
+    <!-- Block Info -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-info-circle"></i> Информация о блоке
+                </div>
+                <div class="card-body">
+                    <table class="table table-dark">
+                        <tbody>
+                            <tr>
+                                <td class="text-muted">Высота</td>
+                                <td><span class="badge bg-primary" x-text="block.height"></span></td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Хэш блока</td>
+                                <td>
+                                    <span class="hash" x-text="block.hash"></span>
+                                    <button class="btn btn-sm btn-outline-secondary ms-2" 
+                                            @click="copyToClipboard(block.hash)">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Предыдущий блок</td>
+                                <td>
+                                    <span class="hash hash-short" x-text="block.prev_hash"></span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Хэш документа</td>
+                                <td>
+                                    <span class="hash hash-short" x-text="block.document_hash"></span>
+                                    <button class="btn btn-sm btn-outline-secondary ms-2"
+                                            @click="copyToClipboard(block.document_hash)">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Время создания</td>
+                                <td x-text="formatDate(block.timestamp)"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-shield-check"></i> Консенсус
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <div class="display-4 mb-2">
+                            <span x-text="block.signatures?.length || 0"></span> / <span x-text="requiredSignatures()"></span>
+                        </div>
+                        <p class="text-muted">подписей для консенсуса</p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Прогресс</span>
+                            <span x-text="consensusPercent() + '%'"></span>
+                        </div>
+                        <div class="progress consensus-progress">
+                            <div class="progress-bar" 
+                                 :class="consensusReached() ? 'bg-success' : 'bg-warning'"
+                                 role="progressbar"
+                                 :style="'width: ' + consensusPercent() + '%'"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <div class="alert" :class="consensusReached() ? 'alert-success' : 'alert-warning'">
+                            <i :class="consensusReached() ? 'bi bi-check-circle-fill' : 'bi bi-hourglass-split'"></i>
+                            <span x-text="consensusReached() ? 'Консенсус достигнут!' : 'Ожидание подписей...'"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <small class="text-muted">Всего зарегистрированных ключей: <span x-text="totalKeys"></span></small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Signatures -->
+    <div class="card mb-4" x-show="block.signatures && block.signatures.length > 0">
+        <div class="card-header">
+            <i class="bi bi-pen"></i> Подписи (<span x-text="block.signatures?.length || 0"></span>)
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <template x-for="(sig, index) in block.signatures" :key="sig.public_key">
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="signature-item p-3 h-100">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <span class="badge bg-success">#<span x-text="index + 1"></span></span>
+                                <small class="text-muted" x-text="formatDate(sig.timestamp)"></small>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Публичный ключ:</small>
+                                <div class="hash hash-short" x-text="sig.public_key"></div>
+                            </div>
+                            <div>
+                                <small class="text-muted">Подпись:</small>
+                                <div class="hash" x-text="sig.signature.substring(0, 32) + '...'"></div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Document Download -->
+    <div class="card" x-show="block.height > 0">
+        <div class="card-header">
+            <i class="bi bi-file-earmark-text"></i> Документ
+        </div>
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <p class="mb-2">Хэш документа:</p>
+                    <div class="hash mb-3" x-text="block.document_hash"></div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <a :href="'/api/documents/' + block.document_hash" class="btn btn-primary" download>
+                        <i class="bi bi-download"></i> Скачать документ
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+function blockData(blockHash) {
+    return {
+        block: {},
+        totalKeys: 0,
+        
+        async loadBlock() {
+            try {
+                const [blockRes, keysRes] = await Promise.all([
+                    fetch('/api/blocks/' + blockHash).then(r => r.json()),
+                    fetch('/api/keys').then(r => r.json())
+                ]);
+                
+                this.block = blockRes;
+                this.totalKeys = keysRes.count || 0;
+            } catch (e) {
+                console.error('Failed to load block:', e);
+            }
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString('ru-RU');
+        },
+        
+        requiredSignatures() {
+            if (this.totalKeys === 0) return 0;
+            return Math.floor(this.totalKeys / 2) + 1;
+        },
+        
+        consensusPercent() {
+            const sigs = this.block.signatures?.length || 0;
+            const req = this.requiredSignatures();
+            if (req === 0) return 0;
+            return Math.min(100, Math.round(sigs / req * 100));
+        },
+        
+        consensusReached() {
+            const sigs = this.block.signatures?.length || 0;
+            return sigs >= this.requiredSignatures();
+        },
+        
+        copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Скопировано в буфер обмена');
+            });
+        }
+    }
+}
+</script>
+{{end}}

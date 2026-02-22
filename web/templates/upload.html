@@ -1,0 +1,245 @@
+{{define "content"}}
+<div class="page-header pt-4">
+    <h1 class="h2"><i class="bi bi-cloud-upload"></i> Загрузить документ</h1>
+    <p class="text-muted">Загрузите PDF документ в блокчейн</p>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card" x-data="uploadData()">
+            <div class="card-header">
+                <i class="bi bi-file-earmark-pdf"></i> Загрузка файла
+            </div>
+            <div class="card-body">
+                <form @submit.prevent="upload">
+                    <div class="mb-4">
+                        <label for="file" class="form-label">Выберите PDF файл</label>
+                        <input type="file" class="form-control" id="file" accept=".pdf" 
+                               @change="handleFileSelect" required>
+                        <div class="form-text">Только файлы в формате PDF</div>
+                    </div>
+                    
+                    <div class="mb-4" x-show="selectedFile">
+                        <label class="form-label">Информация о файле</label>
+                        <div class="p-3" style="background: rgba(0,0,0,0.2); border-radius: 0.5rem;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small class="text-muted">Имя файла</small>
+                                    <div x-text="selectedFile?.name"></div>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">Размер</small>
+                                    <div x-text="formatFileSize(selectedFile?.size)"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info" x-show="showInfo">
+                        <i class="bi bi-info-circle"></i>
+                        После загрузки документ получит уникальный хэш и будет создан новый блок в блокчейне.
+                    </div>
+                    
+                    <div class="alert" :class="alertClass" x-show="message" x-text="message"></div>
+                    
+                    <button type="submit" class="btn btn-primary" :disabled="uploading">
+                        <span x-show="!uploading">
+                            <i class="bi bi-cloud-upload"></i> Загрузить
+                        </span>
+                        <span x-show="uploading">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            Загрузка...
+                        </span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning-charge"></i> Как это работает
+            </div>
+            <div class="card-body">
+                <div class="d-flex mb-3">
+                    <div class="bg-primary rounded-circle p-2 me-3" style="min-width: 40px; height: 40px;">
+                        <span class="text-white fw-bold">1</span>
+                    </div>
+                    <div>
+                        <h6 class="mb-1">Выберите файл</h6>
+                        <small class="text-muted">Только PDF формат</small>
+                    </div>
+                </div>
+                <div class="d-flex mb-3">
+                    <div class="bg-primary rounded-circle p-2 me-3" style="min-width: 40px; height: 40px;">
+                        <span class="text-white fw-bold">2</span>
+                    </div>
+                    <div>
+                        <h6 class="mb-1">Вычисление хэша</h6>
+                        <small class="text-muted">SHA-256 хэш файла</small>
+                    </div>
+                </div>
+                <div class="d-flex mb-3">
+                    <div class="bg-primary rounded-circle p-2 me-3" style="min-width: 40px; height: 40px;">
+                        <span class="text-white fw-bold">3</span>
+                    </div>
+                    <div>
+                        <h6 class="mb-1">Создание блока</h6>
+                        <small class="text-muted">Новый блок в блокчейне</small>
+                    </div>
+                </div>
+                <div class="d-flex">
+                    <div class="bg-primary rounded-circle p-2 me-3" style="min-width: 40px; height: 40px;">
+                        <span class="text-white fw-bold">4</span>
+                    </div>
+                    <div>
+                        <h6 class="mb-1">Подписание</h6>
+                        <small class="text-muted">Клиенты подписывают блок</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-shield-check"></i> Безопасность
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success"></i>
+                        Файл хранится на сервере
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success"></i>
+                        Хэш в блокчейне неизменяем
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success"></i>
+                        Подписи клиентов подтверждают
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1" x-data="resultModal()">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: #1a1d20; border: 1px solid rgba(255,255,255,0.1);">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-check-circle text-success"></i> Документ загружен!
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <small class="text-muted">Хэш документа</small>
+                        <div class="hash hash-short" x-text="result.hash"></div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <small class="text-muted">Хэш блока</div>
+                        <div class="hash hash-short" x-text="result.block_hash"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <small class="text-muted">Имя файла</small>
+                    <div x-text="result.filename"></div>
+                </div>
+                <div class="mb-3">
+                    <small class="text-muted">Размер</small>
+                    <div x-text="formatFileSize(result.size)"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a :href="'/web/blocks/' + result.block_hash" class="btn btn-primary">
+                    <i class="bi bi-eye"></i> Просмотреть блок
+                </a>
+                <a :href="'/api/documents/' + result.hash" class="btn btn-outline-secondary" download>
+                    <i class="bi bi-download"></i> Скачать
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+function uploadData() {
+    return {
+        selectedFile: null,
+        uploading: false,
+        message: '',
+        alertClass: 'alert-info',
+        showInfo: true,
+        
+        handleFileSelect(event) {
+            this.selectedFile = event.target.files[0];
+        },
+        
+        formatFileSize(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        },
+        
+        async upload() {
+            if (!this.selectedFile) return;
+            
+            this.uploading = true;
+            this.message = '';
+            
+            const formData = new FormData();
+            formData.append('file', this.selectedFile);
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки');
+                }
+                
+                const result = await response.json();
+                this.showResult(result);
+                
+            } catch (error) {
+                this.message = 'Ошибка: ' + error.message;
+                this.alertClass = 'alert-danger';
+            } finally {
+                this.uploading = false;
+            }
+        },
+        
+        showResult(result) {
+            window.resultModalData.result = result;
+            const modal = new bootstrap.Modal(document.getElementById('resultModal'));
+            modal.show();
+        }
+    }
+}
+
+function resultModal() {
+    return {
+        result: { hash: '', block_hash: '', filename: '', size: 0 },
+        
+        formatFileSize(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+    }
+}
+</script>
+{{end}}
