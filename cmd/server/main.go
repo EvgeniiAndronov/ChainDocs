@@ -143,6 +143,13 @@ func main() {
 	r.Get("/api/keys/revoked", srv.handleGetRevokedKeys)
 	r.Get("/api/keys/active", srv.handleGetActiveKeys)
 	
+	// Categories
+	r.Get("/api/categories", srv.handleGetCategories)
+	r.Post("/api/categories", srv.handleCreateCategory)
+	r.Get("/api/categories/{id}", srv.handleGetCategory)
+	r.Get("/api/categories/{id}/documents", srv.handleGetCategoryDocuments)
+	r.Delete("/api/categories/{id}", srv.handleDeleteCategory)
+	
 	// Metrics endpoint
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
@@ -839,6 +846,105 @@ func (s *Server) handleGetActiveKeys(w http.ResponseWriter, r *http.Request) {
 		"window":     window.String(),
 		"count":      len(activities),
 		"activities": activities,
+	})
+}
+
+// ==================== Categories Handlers ====================
+
+// handleGetCategories - получение всех категорий
+func (s *Server) handleGetCategories(w http.ResponseWriter, r *http.Request) {
+	categories, err := s.db.GetAllCategories()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":      len(categories),
+		"categories": categories,
+	})
+}
+
+// handleCreateCategory - создание категории
+func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.ID == "" || req.Name == "" {
+		http.Error(w, "ID and name are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.CreateCategory(req.ID, req.Name, req.Description); err != nil {
+		http.Error(w, "Failed to create category", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("📁 Category created: %s (%s)", req.Name, req.ID)
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "created",
+		"id":     req.ID,
+	})
+}
+
+// handleGetCategory - получение категории по ID
+func (s *Server) handleGetCategory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	category, err := s.db.GetCategory(id)
+	if err != nil {
+		http.Error(w, "Category not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(category)
+}
+
+// handleGetCategoryDocuments - получение документов категории
+func (s *Server) handleGetCategoryDocuments(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	documents, err := s.db.GetDocumentsByCategory(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"category":  id,
+		"count":     len(documents),
+		"documents": documents,
+	})
+}
+
+// handleDeleteCategory - удаление категории
+func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := s.db.DeleteCategory(id); err != nil {
+		http.Error(w, "Failed to delete category", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("🗑️ Category deleted: %s", id)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "deleted",
+		"id":     id,
 	})
 }
 

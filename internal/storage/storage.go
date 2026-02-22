@@ -29,17 +29,38 @@ var (
 	bucketPubKeys = []byte("pubkeys")  // зарегистрированные публичные ключи
 	bucketRevoked = []byte("revoked")  // отозванные ключи
 	bucketActivity = []byte("activity") // активность ключей (key -> last_seen timestamp)
+	bucketCategories = []byte("categories") // категории документов
 
 	// Ключи метаданных
 	keyLastHash   = []byte("last_hash")
 	keyLastHeight = []byte("last_height")
 )
 
+// Category категория документов
+type Category struct {
+	ID          string `json:"id"`          // ID категории
+	Name        string `json:"name"`        // Название
+	Description string `json:"description"` // Описание
+	Created     string `json:"created"`     // Время создания
+	DocCount    int64  `json:"doc_count"`   // Количество документов
+}
+
 // KeyActivity информация об активности ключа
 type KeyActivity struct {
 	PublicKey string `json:"public_key"`
 	LastSeen  string `json:"last_seen"` // RFC3339 timestamp
 	BlockCount int64 `json:"block_count"` // количество подписанных блоков
+}
+
+// DocumentMetadata метаданные документа
+type DocumentMetadata struct {
+	Hash       string `json:"hash"`
+	Filename   string `json:"filename"`
+	Category   string `json:"category"`
+	Size       int64  `json:"size"`
+	Uploaded   string `json:"uploaded"`
+	BlockHash  string `json:"block_hash"`
+	Owner      string `json:"owner,omitempty"` // Публичный ключ владельца
 }
 
 type Storage struct {
@@ -68,6 +89,8 @@ func New(path string) (*Storage, error) {
 		tx.CreateBucketIfNotExists(bucketPubKeys)
 		tx.CreateBucketIfNotExists(bucketRevoked)
 		tx.CreateBucketIfNotExists(bucketActivity)
+		tx.CreateBucketIfNotExists(bucketCategories)
+		tx.CreateBucketIfNotExists([]byte("documents_meta"))
 		return nil
 	})
 
@@ -569,4 +592,183 @@ func (s *Storage) GetAllKeyActivity() ([]KeyActivity, error) {
 	})
 
 	return activities, err
+}
+
+// ==================== Categories ====================
+
+// CreateCategory создаёт новую категорию
+func (s *Storage) CreateCategory(id, name, description string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(bucketCategories)
+		if err != nil {
+			return err
+		}
+
+		category := Category{
+			ID:          id,
+			Name:        name,
+			Description: description,
+			Created:     time.Now().UTC().Format(time.RFC3339),
+			DocCount:    0,
+		}
+
+		data, err := json.Marshal(category)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put([]byte(id), data)
+	})
+}
+
+// GetCategory возвращает категорию по ID
+func (s *Storage) GetCategory(id string) (*Category, error) {
+	var category Category
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketCategories)
+		if bucket == nil {
+			return fmt.Errorf("categories bucket not found")
+		}
+
+		data := bucket.Get([]byte(id))
+		if data == nil {
+			return fmt.Errorf("category not found")
+		}
+
+		return json.Unmarshal(data, &category)
+	})
+
+	return &category, err
+}
+
+// GetAllCategories возвращает все категории
+func (s *Storage) GetAllCategories() ([]Category, error) {
+	var categories []Category
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketCategories)
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var category Category
+			if err := json.Unmarshal(v, &category); err != nil {
+				continue
+			}
+			categories = append(categories, category)
+		}
+		return nil
+	})
+
+	return categories, err
+}
+
+// DeleteCategory удаляет категорию
+func (s *Storage) DeleteCategory(id string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketCategories)
+		if bucket == nil {
+			return fmt.Errorf("categories bucket not found")
+		}
+		return bucket.Delete([]byte(id))
+	})
+}
+
+// IncrementCategoryDocCount увеличивает счётчик документов
+func (s *Storage) IncrementCategoryDocCount(categoryID string) error {
+	if categoryID == "" {
+		return nil
+	}
+
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketCategories)
+		if bucket == nil {
+			return nil
+		}
+
+		data := bucket.Get([]byte(categoryID))
+		if data == nil {
+			return nil
+		}
+
+		var category Category
+		if err := json.Unmarshal(data, &category); err != nil {
+			return err
+		}
+
+		category.DocCount++
+
+		updatedData, err := json.Marshal(category)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put([]byte(categoryID), updatedData)
+	})
+}
+
+// SaveDocumentMetadataWithCategory сохраняет метаданные документа с категорией
+func (s *Storage) SaveDocumentMetadataWithCategory(meta DocumentMetadata) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("documents_meta"))
+		if err != nil {
+			return err
+		}
+
+		data, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+
+		if err := bucket.Put([]byte(meta.Hash), data); err != nil {
+			return err
+		}
+
+		// Увеличиваем счётчик категории
+		if meta.Category != "" {
+			catBucket := tx.Bucket(bucketCategories)
+			if catBucket != nil {
+				catData := catBucket.Get([]byte(meta.Category))
+				if catData != nil {
+					var category Category
+					if err := json.Unmarshal(catData, &category); err == nil {
+						category.DocCount++
+						updatedData, _ := json.Marshal(category)
+						catBucket.Put([]byte(meta.Category), updatedData)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+// GetDocumentsByCategory возвращает документы категории
+func (s *Storage) GetDocumentsByCategory(categoryID string) ([]DocumentMetadata, error) {
+	var documents []DocumentMetadata
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte("documents_meta"))
+		if bucket == nil {
+			return nil
+		}
+
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var meta DocumentMetadata
+			if err := json.Unmarshal(v, &meta); err != nil {
+				continue
+			}
+			if meta.Category == categoryID {
+				documents = append(documents, meta)
+			}
+		}
+		return nil
+	})
+
+	return documents, err
 }
