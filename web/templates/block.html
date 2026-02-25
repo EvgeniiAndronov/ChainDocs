@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Блок - ChainDocs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <style>
+        .sidebar { min-height: 100vh; background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%); }
+        .nav-link { color: rgba(255,255,255,0.7); margin-bottom: 0.25rem; }
+        .nav-link:hover, .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); border-radius: 0.375rem; }
+        .nav-link i { margin-right: 0.5rem; }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
+        .hash { font-family: 'Courier New', monospace; font-size: 0.75rem; word-break: break-all; }
+        .main-content { padding: 2rem; }
+        .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
+        .logo i { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar p-3">
+                <div class="logo"><i class="bi bi-shield-lock"></i> ChainDocs</div>
+                <ul class="nav flex-column">
+                    <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/categories"><i class="bi bi-folder"></i> Категории</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузка</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
+                </ul>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="blockData()" x-init="loadBlock()">
+                <div class="page-header pt-4">
+                    <p class="text-muted">Полная информация о блоке</p>
+                </div>
+
+                <template x-if="block.hash">
+                    <div class="row g-4">
+                        <!-- Basic Info -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-info-circle"></i> Основная информация</div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Высота</label>
+                                        <div class="h5 mb-0" x-text="block.height"></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Хэш блока</label>
+                                        <div><code class="hash" x-text="block.hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Предыдущий хэш</label>
+                                        <div><code class="hash" x-text="block.prev_hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Хэш документа</label>
+                                        <div><code class="hash" x-text="block.document_hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Время создания</label>
+                                        <div x-text="formatDate(block.timestamp)"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Consensus -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-shield-check"></i> Консенсус</div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Статус</label>
+                                        <div>
+                                            <span class="badge" :class="consensusReached ? 'bg-success' : 'bg-warning'" 
+                                                  x-text="consensusReached ? 'Достигнут' : 'Ожидание'"></span>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Прогресс</label>
+                                        <div class="progress">
+                                            <div class="progress-bar" role="progressbar" 
+                                                 :style="'width: ' + consensusPercent + '%'"
+                                                 :aria-valuenow="consensusPercent" aria-valuemin="0" aria-valuemax="100">
+                                                <span x-text="consensusPercent + '%'"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Подписей</label>
+                                        <div class="h4 mb-0">
+                                            <span x-text="signatureCount"></span> / <span x-text="requiredSignatures"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Signatures -->
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-key"></i> Подписи клиентов</div>
+                                <div class="card-body">
+                                    <template x-if="block.signatures?.length === 0">
+                                        <p class="text-muted mb-0">Нет подписей</p>
+                                    </template>
+                                    <div class="table-responsive" x-show="block.signatures?.length > 0">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Публичный ключ</th>
+                                                    <th>Подпись</th>
+                                                    <th>Время</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <template x-for="sig in block.signatures" :key="sig.public_key">
+                                                    <tr>
+                                                        <td><code class="hash" x-text="sig.public_key"></code></td>
+                                                        <td><code class="hash" x-text="sig.signature"></code></td>
+                                                        <td x-text="formatDate(sig.timestamp)"></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </main>
+        </div>
+    </div>
+
+    <script>
+    function blockData() {
+        return {
+            block: {},
+            consensusPercent: 0,
+            requiredSignatures: 2,
+            get blockHash() { return window.location.pathname.split('/').pop(); },
+            get consensusReached() { return this.signatureCount >= this.requiredSignatures; },
+            get signatureCount() { return this.block.signatures?.length || 0; },
+            async loadBlock() {
+                try {
+                    const res = await fetch('/api/blocks/' + this.blockHash);
+                    this.block = await res.json();
+                    const total = 3; // TODO: получить из API
+                    this.consensusPercent = Math.round((this.signatureCount / total) * 100);
+                } catch (e) { console.error('Block:', e); }
+            },
+            formatDate(dateStr) {
+                if (!dateStr) return '—';
+                return new Date(dateStr).toLocaleString('ru-RU');
+            }
+        }
+    }
+    </script>
+</body>
+</html>

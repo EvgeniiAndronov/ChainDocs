@@ -1,0 +1,67 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Database files
+*.db
+blockchain.db
+test_*.db
+
+# Encrypted keys
+*.enc
+
+# Uploaded files
+uploads/
+*.pdf
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test artifacts
+test_blockchain.db
+pub*.txt
+test.enc
+mykey.enc
+
+# Build artifacts
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Docker volumes (local development)
+chaindocs-data/
+chaindocs-uploads/
+chaindocs-logs/
+backups/
+
+# OS
+.AppleDouble
+.LSOverride
+
+# Documentation PDFs (except docs/)
+!docs/*.pdf

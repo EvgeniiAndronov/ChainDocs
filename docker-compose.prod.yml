@@ -1,0 +1,146 @@
+# Production Docker Compose для ChainDocs
+# Использование: docker-compose -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # ========================================
+  # ChainDocs Server
+  # ========================================
+  chaindocs-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chaindocs-server
+    ports:
+      - "8080:8080"
+    volumes:
+      # Данные
+      - chaindocs-data:/app/data
+      - chaindocs-uploads:/app/uploads
+      - chaindocs-logs:/app/logs
+      # Конфигурация
+      - ./config.json:/app/config.json:ro
+      # Backup
+      - ./backups:/app/backups
+    environment:
+      - CHAINDOCS_CONFIG=/app/config.json
+      - CHAINDOCS_DB=/app/data/blockchain.db
+      - CHAINDOCS_BACKUP_DIR=/app/backups
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - chaindocs-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/blocks/last"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ========================================
+  # ChainDocs Client (опционально)
+  # ========================================
+  chaindocs-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: chaindocs-client
+    volumes:
+      - ./client-config.json:/app/config.json:ro
+      - ./client-key.enc:/app/key.enc:ro
+    environment:
+      - CHAINDOCS_KEY_PASSWORD=${CHAINDOCS_KEY_PASSWORD}
+      - CHAINDOCS_CONFIG=/app/config.json
+    depends_on:
+      chaindocs-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - chaindocs-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ========================================
+  # Prometheus (опционально)
+  # ========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chaindocs-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+    networks:
+      - chaindocs-network
+    depends_on:
+      - chaindocs-server
+
+  # ========================================
+  # Grafana (опционально)
+  # ========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chaindocs-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    networks:
+      - chaindocs-network
+    depends_on:
+      - prometheus
+
+# ========================================
+# Volumes
+# ========================================
+volumes:
+  chaindocs-data:
+    driver: local
+  chaindocs-uploads:
+    driver: local
+  chaindocs-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ========================================
+# Networks
+# ========================================
+networks:
+  chaindocs-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

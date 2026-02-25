@@ -1,0 +1,29 @@
+[Unit]
+Description=ChainDocs Client Daemon
+Documentation=https://github.com/ChainDocs
+After=network.target
+
+[Service]
+Type=simple
+User=chaindocs
+Group=chaindocs
+WorkingDirectory=/opt/chaindocs
+ExecStart=/opt/chaindocs/chaindocs-client -config /opt/chaindocs/config.json
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chaindocs-client
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/chaindocs/logs /opt/chaindocs/data
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="CHAINDOCS_KEY_PASSWORD="
+
+[Install]
+WantedBy=multi-user.target

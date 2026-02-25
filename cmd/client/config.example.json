@@ -1,0 +1,23 @@
+{
+  "server": "http://localhost:8080",
+  "key_file": "key.enc",
+  "password_env": "CHAINDOCS_KEY_PASSWORD",
+  "mode": "daemon",
+  "daemon": {
+    "interval": "10s",
+    "max_blocks_per_cycle": 0,
+    "sign_unsigned_only": true,
+    "stop_on_consensus": true
+  },
+  "logging": {
+    "level": "info",
+    "file": "",
+    "format": "text"
+  },
+  "self_healing": {
+    "enabled": true,
+    "alert_on_foreign_signature": true,
+    "alert_webhook": "",
+    "auto_revoke": false
+  }
+}

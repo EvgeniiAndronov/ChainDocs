@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  chaindocs-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chaindocs-server
+    ports:
+      - "8080:8080"
+    volumes:
+      - chaindocs-data:/app/data
+      - chaindocs-uploads:/app/uploads
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - chaindocs-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/blocks/last"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Optional: Client daemon example
+  # Uncomment and configure if running client on same host
+  # chaindocs-client:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.client
+  #   container_name: chaindocs-client
+  #   volumes:
+  #     - ./client-config.json:/app/config.json:ro
+  #     - ./key.enc:/app/key.enc:ro
+  #   environment:
+  #     - CHAINDOCS_KEY_PASSWORD=your_password_here
+  #   depends_on:
+  #     - chaindocs-server
+  #   restart: unless-stopped
+  #   networks:
+  #     - chaindocs-network
+
+volumes:
+  chaindocs-data:
+    driver: local
+  chaindocs-uploads:
+    driver: local
+
+networks:
+  chaindocs-network:
+    driver: bridge

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ключи - ChainDocs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <style>
+        .sidebar { min-height: 100vh; background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%); }
+        .nav-link { color: rgba(255,255,255,0.7); margin-bottom: 0.25rem; }
+        .nav-link:hover, .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); border-radius: 0.375rem; }
+        .nav-link i { margin-right: 0.5rem; }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
+        .hash { font-family: 'Courier New', monospace; font-size: 0.75rem; word-break: break-all; }
+        .main-content { padding: 2rem; }
+        .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
+        .logo i { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar p-3">
+                <div class="logo"><i class="bi bi-shield-lock"></i> ChainDocs</div>
+                <ul class="nav flex-column">
+                    <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/categories"><i class="bi bi-folder"></i> Категории</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузка</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
+                </ul>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="keysData()" x-init="loadKeys()">
+                <div class="page-header pt-4">
+                    <h1 class="h2"><i class="bi bi-key"></i> Ключи клиентов</h1>
+                    <p class="text-muted">Статус и активность клиентов</p>
+                </div>
+
+                <!-- Loading indicator -->
+                <div class="text-center py-5" x-show="loading">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Загрузка данных...</p>
+                </div>
+
+                <!-- Error message -->
+                <div class="alert alert-danger" x-show="error" x-text="error"></div>
+
+                <!-- Content -->
+                <div x-show="!loading && !error">
+
+                <div class="row g-4 mb-4">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted">Всего ключей</h6>
+                                <h3 x-text="totalKeys">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted">Активных (24ч)</h6>
+                                <h3 x-text="activeKeys">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted">Отозванных</h6>
+                                <h3 x-text="revokedKeys">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-list"></i> Список ключей</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Ключ</th>
+                                        <th>Подписано блоков</th>
+                                        <th>Активен</th>
+                                        <th>Последняя активность</th>
+                                        <th>Регистрация</th>
+                                        <th>Статус</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="key in allKeys" :key="key.public_key">
+                                        <tr>
+                                            <td><code class="hash" x-text="key.public_key"></code></td>
+                                            <td x-text="key.block_count || 0"></td>
+                                            <td>
+                                                <span class="badge" :class="isRecent(key.last_seen) ? 'bg-success' : 'bg-secondary'" 
+                                                      x-text="isRecent(key.last_seen) ? 'Да' : 'Нет'"></span>
+                                            </td>
+                                            <td x-text="formatDate(key.last_seen)"></td>
+                                            <td x-text="formatDate(key.registered_at)"></td>
+                                            <td>
+                                                <span class="badge" :class="key.revoked ? 'bg-danger' : 'bg-success'" 
+                                                      x-text="key.revoked ? 'Отозван' : 'Активен'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+    function keysData() {
+        return {
+            loading: true,
+            error: '',
+            keys: [],
+            active: [],
+            revoked: [],
+            get totalKeys() { return this.keys.length; },
+            get activeKeys() { return this.active.count || 0; },
+            get revokedKeys() { return this.revoked.keys?.length || this.revoked.revoked_keys?.length || 0; },
+            get allKeys() {
+                // Объединяем ключи с активностью
+                const keyMap = {};
+                
+                // Добавляем все ключи
+                this.keys.forEach(key => {
+                    keyMap[key] = { 
+                        public_key: key, 
+                        block_count: 0, 
+                        last_seen: null, 
+                        registered_at: null,
+                        revoked: false 
+                    };
+                });
+                
+                // Обновляем активностью
+                this.active.activities?.forEach(act => {
+                    if (keyMap[act.public_key]) {
+                        keyMap[act.public_key].block_count = act.block_count;
+                        keyMap[act.public_key].last_seen = act.last_seen;
+                    }
+                });
+                
+                // Отмечаем отозванные
+                const revokedList = this.revoked.revoked_keys || this.revoked.keys || [];
+                revokedList.forEach(rev => {
+                    const key = typeof rev === 'string' ? rev : rev.public_key;
+                    const revokedAt = typeof rev === 'object' ? rev.revoked_at : null;
+                    if (keyMap[key]) {
+                        keyMap[key].revoked = true;
+                        if (revokedAt) keyMap[key].revoked_at = revokedAt;
+                    }
+                });
+                
+                return Object.values(keyMap);
+            },
+            async loadKeys() {
+                try {
+                    this.loading = true;
+                    this.error = '';
+                    console.log('Loading keys...');
+                    const [keysRes, activeRes, revokedRes] = await Promise.all([
+                        fetch('/api/keys'),
+                        fetch('/api/keys/active'),
+                        fetch('/api/keys/revoked')
+                    ]);
+                    
+                    if (!keysRes.ok || !activeRes.ok || !revokedRes.ok) {
+                        throw new Error('Ошибка загрузки данных');
+                    }
+                    
+                    const keysData = await keysRes.json();
+                    this.keys = keysData.keys || [];
+                    this.active = await activeRes.json();
+                    this.revoked = await revokedRes.json();
+                    
+                    console.log('Keys loaded:', this.keys.length);
+                    console.log('Active loaded:', this.active.count);
+                    console.log('All keys:', this.allKeys.length);
+                } catch (e) {
+                    console.error('Keys:', e);
+                    this.error = 'Ошибка загрузки: ' + e.message;
+                } finally {
+                    this.loading = false;
+                }
+            },
+            isRecent(dateStr) {
+                if (!dateStr) return false;
+                const diff = Date.now() - new Date(dateStr).getTime();
+                return diff < 24 * 60 * 60 * 1000; // 24 hours
+            },
+            formatDate(dateStr) {
+                if (!dateStr) return '—';
+                return new Date(dateStr).toLocaleString('ru-RU');
+            }
+        }
+    }
+    </script>
+</body>
+</html>

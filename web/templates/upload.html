@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка - ChainDocs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <style>
+        .sidebar { min-height: 100vh; background: linear-gradient(180deg, #1a1d20 0%, #0d0f11 100%); }
+        .nav-link { color: rgba(255,255,255,0.7); margin-bottom: 0.25rem; }
+        .nav-link:hover, .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); border-radius: 0.375rem; }
+        .nav-link i { margin-right: 0.5rem; }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
+        .drop-zone { border: 2px dashed rgba(255,255,255,0.3); border-radius: 0.5rem; padding: 3rem; text-align: center; transition: all 0.3s; }
+        .drop-zone.dragover { border-color: #0d6efd; background: rgba(13,110,253,0.1); }
+        .main-content { padding: 2rem; }
+        .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
+        .logo i { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar p-3">
+                <div class="logo"><i class="bi bi-shield-lock"></i> ChainDocs</div>
+                <ul class="nav flex-column">
+                    <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/categories"><i class="bi bi-folder"></i> Категории</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузка</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
+                </ul>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="uploadData()" x-init="loadCategories()">
+                <div class="page-header pt-4">
+                    <h1 class="h2"><i class="bi bi-cloud-upload"></i> Загрузка документов</h1>
+                    <p class="text-muted">Одиночная или массовая загрузка PDF файлов</p>
+                </div>
+
+                <!-- Mode Selection -->
+                <div class="mb-4">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn" :class="mode === 'single' ? 'btn-primary' : 'btn-outline-primary'" 
+                                @click="mode = 'single'">
+                            <i class="bi bi-file-earmark-pdf"></i> Одиночная
+                        </button>
+                        <button type="button" class="btn" :class="mode === 'bulk' ? 'btn-primary' : 'btn-outline-primary'" 
+                                @click="mode = 'bulk'">
+                            <i class="bi bi-files"></i> Массовая (до 50)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Single Upload -->
+                <div class="card" x-show="mode === 'single'">
+                    <div class="card-header"><i class="bi bi-file-earmark-pdf"></i> Одиночная загрузка</div>
+                    <div class="card-body">
+                        <form @submit.prevent="uploadSingle">
+                            <div class="mb-3">
+                                <label class="form-label">Категория</label>
+                                <select class="form-select" x-model="category">
+                                    <option value="">Без категории</option>
+                                    <template x-for="cat in categories" :key="cat.id">
+                                        <option :value="cat.id" x-text="cat.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Файл PDF</label>
+                                <input type="file" class="form-control" accept=".pdf" @change="singleFile = $event.target.files[0]" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary" :disabled="!singleFile || uploading">
+                                <i class="bi bi-cloud-upload"></i> Загрузить
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Bulk Upload -->
+                <div class="card" x-show="mode === 'bulk'">
+                    <div class="card-header"><i class="bi bi-files"></i> Массовая загрузка</div>
+                    <div class="card-body">
+                        <form @submit.prevent="uploadBulk">
+                            <div class="mb-3">
+                                <label class="form-label">Категория</label>
+                                <select class="form-select" x-model="category">
+                                    <option value="">Без категории</option>
+                                    <template x-for="cat in categories" :key="cat.id">
+                                        <option :value="cat.id" x-text="cat.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Файлы</label>
+                                <div class="drop-zone" :class="dragOver ? 'dragover' : ''"
+                                     @dragover.prevent="dragOver = true"
+                                     @dragleave.prevent="dragOver = false"
+                                     @drop.prevent="handleDrop">
+                                    <i class="bi bi-cloud-arrow-up display-4"></i>
+                                    <p class="mt-3">Перетащите файлы или нажмите</p>
+                                    <p class="text-muted">До 50 PDF файлов</p>
+                                    <input type="file" multiple accept=".pdf" @change="bulkFiles = Array.from($event.target.files)" class="d-none" ref="fileInput">
+                                    <button type="button" class="btn btn-outline-primary mt-2" @click="$refs.fileInput.click()">
+                                        <i class="bi bi-folder-open"></i> Выбрать файлы
+                                    </button>
+                                </div>
+                                <div class="mt-2" x-show="bulkFiles.length > 0">
+                                    <small class="text-muted">Выбрано: <span x-text="bulkFiles.length"></span> файлов</small>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" :disabled="bulkFiles.length === 0 || uploading">
+                                <i class="bi bi-cloud-upload"></i> Загрузить <span x-text="bulkFiles.length"></span> файлов
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="card mt-4" x-show="results.length > 0">
+                    <div class="card-header"><i class="bi bi-check-circle"></i> Результаты</div>
+                    <div class="card-body">
+                        <div class="alert" :class="successCount > 0 ? 'alert-success' : 'alert-danger'">
+                            Успешно: <strong x-text="successCount"></strong> из <strong x-text="results.length"></strong>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr><th>Файл</th><th>Хэш</th><th>Блок</th><th>Статус</th></tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="r in results" :key="r.filename">
+                                        <tr :class="r.success ? 'table-success' : 'table-danger'">
+                                            <td x-text="r.filename"></td>
+                                            <td><code style="font-size:0.7rem" x-text="r.hash ? r.hash.substring(0,16)+'...' : '-'"></code></td>
+                                            <td><code style="font-size:0.7rem" x-text="r.block_hash ? r.block_hash.substring(0,16)+'...' : '-'"></code></td>
+                                            <td>
+                                                <span class="badge" :class="r.success ? 'bg-success' : 'bg-danger'" 
+                                                      x-text="r.success ? 'OK' : 'Ошибка'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+    function uploadData() {
+        return {
+            mode: 'single',
+            categories: [],
+            category: '',
+            singleFile: null,
+            bulkFiles: [],
+            dragOver: false,
+            uploading: false,
+            results: [],
+            successCount: 0,
+            async loadCategories() {
+                const r = await fetch('/api/categories');
+                const d = await r.json();
+                this.categories = d.categories || [];
+            },
+            handleDrop(e) {
+                this.dragOver = false;
+                this.bulkFiles = Array.from(e.dataTransfer.files);
+            },
+            async uploadSingle() {
+                if (!this.singleFile) return;
+                this.uploading = true;
+                const fd = new FormData();
+                fd.append('file', this.singleFile);
+                if (this.category) fd.append('category', this.category);
+                try {
+                    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+                    const res = await r.json();
+                    this.results = [{ filename: this.singleFile.name, hash: res.hash, block_hash: res.block_hash, success: true }];
+                    this.successCount = 1;
+                } catch (e) {
+                    this.results = [{ filename: this.singleFile.name, success: false, error: e.message }];
+                }
+                this.uploading = false;
+            },
+            async uploadBulk() {
+                if (this.bulkFiles.length === 0) return;
+                this.uploading = true;
+                const fd = new FormData();
+                if (this.category) fd.append('category', this.category);
+                this.bulkFiles.forEach(f => fd.append('files', f));
+                try {
+                    const r = await fetch('/api/upload/bulk', { method: 'POST', body: fd });
+                    const res = await r.json();
+                    this.results = res.results || [];
+                    this.successCount = res.success || 0;
+                } catch (e) {
+                    this.results = this.bulkFiles.map(f => ({ filename: f.name, success: false, error: e.message }));
+                }
+                this.uploading = false;
+            }
+        }
+    }
+    </script>
+</body>
+</html>
