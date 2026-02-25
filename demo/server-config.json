@@ -1,8 +1,8 @@
 {
   "port": 8080,
-  "db_path": "demo_blockchain.db",
-  "upload_dir": "./demo_uploads",
-  "log_file": "./demo_logs/server.log",
+  "db_path": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_blockchain.db",
+  "upload_dir": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_uploads",
+  "log_file": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_logs/server.log",
   "log_level": "info",
   "consensus": {
     "type": "percentage",

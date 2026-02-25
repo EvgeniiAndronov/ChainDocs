@@ -1,0 +1,292 @@
+name: ChainDocs CI/CD
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  # ==================== BUILD ====================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Build server
+      run: go build -v -o bin/server ./cmd/server/main.go ./cmd/server/config.go
+
+    - name: Build client
+      run: go build -v -o bin/client ./cmd/client/main.go ./cmd/client/config.go
+
+    - name: Build keygen
+      run: go build -v -o bin/keygen ./cmd/keygen/main.go
+
+    - name: Build signer
+      run: go build -v -o bin/signer ./cmd/signer/main.go
+
+    - name: Upload binaries
+      uses: actions/upload-artifact@v4
+      with:
+        name: chaindocs-binaries
+        path: bin/
+        retention-days: 7
+
+  # ==================== UNIT TESTS ====================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run unit tests
+      run: go test -v -race -coverprofile=coverage.out ./internal/... ./cmd/...
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage.out
+        retention-days: 7
+
+  # ==================== INTEGRATION TESTS ====================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Download binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: chaindocs-binaries
+        path: bin/
+
+    - name: Make binaries executable
+      run: chmod +x bin/*
+
+    - name: Run integration tests
+      run: go test -v -timeout 5m ./test/integration/...
+
+  # ==================== LIVE TESTS ====================
+  live-tests:
+    name: Live Tests (End-to-End)
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests, integration-tests]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Download binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: chaindocs-binaries
+        path: bin/
+
+    - name: Make binaries executable
+      run: chmod +x bin/*
+
+    - name: Install jq
+      run: apt-get update && apt-get install -y jq
+
+    - name: Run live test
+      run: ./test-live.sh
+
+    - name: Upload test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: live-test-logs
+        path: /tmp/*.log
+        retention-days: 7
+
+  # ==================== DEMO TEST ====================
+  demo-test:
+    name: Demo Test
+    runs-on: ubuntu-latest
+    needs: [build]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Download binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: chaindocs-binaries
+      run: |
+        chmod +x bin/*
+        mkdir -p demo/bin
+        cp bin/* demo/bin/
+
+    - name: Install jq
+      run: apt-get update && apt-get install -y jq
+
+    - name: Run demo start
+      run: |
+        chmod +x demo/demo-start.sh
+        ./demo/demo-start.sh
+      timeout-minutes: 3
+
+    - name: Verify demo is running
+      run: |
+        sleep 5
+        curl -s http://localhost:8080/api/blocks/last | jq
+        curl -s http://localhost:8080/api/keys | jq
+
+    - name: Stop demo
+      run: |
+        chmod +x demo/demo-stop.sh
+        ./demo/demo-stop.sh || true
+
+  # ==================== DOCKER BUILD ====================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [build]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build server image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: chaindocs-server:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build client image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.client
+        push: false
+        tags: chaindocs-client:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ==================== LINT ====================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run gofmt
+      run: |
+        output=$(gofmt -l .)
+        if [ -n "$output" ]; then
+          echo "Files not formatted:"
+          echo "$output"
+          exit 1
+        fi
+
+    - name: Run go vet
+      run: go vet ./...
+
+  # ==================== DEPLOY (only on main) ====================
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests, integration-tests, live-tests, demo-test, lint]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: chaindocs-binaries
+        path: bin/
+
+    - name: Make binaries executable
+      run: chmod +x bin/*
+
+    - name: Deploy notification
+      run: |
+        echo "✅ All tests passed!"
+        echo "🚀 Ready for deployment"
+        echo "📦 Binaries available in artifacts"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Download binaries from GitHub Actions artifacts"
+        echo "  2. Deploy to production server"
+        echo "  3. Run: ./demo/demo-start.sh for demo"

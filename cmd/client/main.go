@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -11,12 +12,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"ChainDocs/internal/block"
 	"ChainDocs/internal/crypto"
+	"ChainDocs/internal/p2p"
+	"nhooyr.io/websocket"
 )
+
+// min возвращает минимальное из двух чисел
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 type Client struct {
 	config       *Config
@@ -24,6 +36,9 @@ type Client struct {
 	publicKeyHex string
 	httpClient   *http.Client
 	logger       *log.Logger
+	wsConn       *websocket.Conn
+	p2pNode      *p2p.P2PNode
+	useWebSocket bool
 }
 
 func main() {
@@ -83,7 +98,7 @@ func main() {
 	}
 
 	pubHex := crypto.PublicKeyToString(kp.PublicKey)
-	log.Printf("✅ Key loaded. Public key: %s...", pubHex[:16])
+	log.Printf("✅ Key loaded. Public key: %s...", pubHex[:min(len(pubHex), 16)])
 
 	client := &Client{
 		config:       config,
@@ -91,16 +106,215 @@ func main() {
 		publicKeyHex: pubHex,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		logger:       log.New(os.Stdout, "[CLIENT] ", log.LstdFlags),
+		useWebSocket: false,
 	}
 
+	// Пытаемся подключиться через WebSocket (гибридный режим)
 	if config.Mode == "daemon" {
-		log.Println("🔄 Running in daemon mode")
+		client.connectWebSocket()
+	}
+
+	// Инициализируем P2P узел
+	client.initP2P()
+
+	if config.Mode == "daemon" {
+		log.Println("🔄 Running in daemon mode (hybrid: WebSocket + P2P)")
 		client.runDaemon()
 	} else {
 		log.Println("🔄 Running in oneshot mode")
 		if err := client.processOnce(); err != nil {
 			log.Fatalf("Error: %v", err)
 		}
+	}
+}
+
+// connectWebSocket подключается к WebSocket серверу
+func (c *Client) connectWebSocket() {
+	// Преобразуем http:// в ws://
+	wsURL := strings.Replace(c.config.Server, "http://", "ws://", 1)
+	wsURL = fmt.Sprintf("%s/ws/notifications?public_key=%s", wsURL, c.publicKeyHex)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		c.logger.Printf("⚠️  WebSocket connection failed: %v (fallback to polling)", err)
+		return
+	}
+
+	c.wsConn = conn
+	c.useWebSocket = true
+	c.logger.Println("✅ WebSocket connected (real-time mode)")
+
+	// Запускаем обработчик входящих сообщений
+	c.logger.Println("🔄 Starting WebSocket message handler goroutine")
+	go c.handleWebSocketMessages()
+	
+	// Проверяем неподписанные блоки при подключении
+	go c.checkPendingBlocks()
+}
+
+// checkPendingBlocks проверяет и подписывает неподписанные блоки
+func (c *Client) checkPendingBlocks() {
+	// Даём WebSocket время подключиться
+	time.Sleep(2 * time.Second)
+	
+	c.logger.Println("📋 Checking for pending blocks...")
+	
+	// Получаем последний блок
+	lastBlock, err := c.getLastBlock()
+	if err != nil {
+		c.logger.Printf("⚠️  Failed to get last block: %v", err)
+		return
+	}
+	
+	c.logger.Printf("🔍 Last block: height=%d, hash=%s, signatures=%d",
+		lastBlock.Height, lastBlock.ShortHash(), len(lastBlock.Signatures))
+	
+	// Проверяем если блок не подписан нами
+	if !lastBlock.IsSignedBy(c.keyPair.PublicKey) {
+		c.logger.Printf("✍️  Block %d not signed by us, signing...", lastBlock.Height)
+		c.processBlock(lastBlock)
+	} else {
+		c.logger.Println("✅ Block already signed by us")
+	}
+}
+
+// handleWebSocketMessages обрабатывает сообщения от сервера
+func (c *Client) handleWebSocketMessages() {
+	for {
+		_, msg, err := c.wsConn.Read(context.Background())
+		if err != nil {
+			c.logger.Printf("⚠️  WebSocket read error: %v", err)
+			c.useWebSocket = false
+			return
+		}
+
+		c.logger.Printf("📩 [WS] Raw message received: %s", string(msg))
+
+		var wsMsg struct {
+			Type      string          `json:"type"`
+			Block     *block.Block    `json:"block,omitempty"`
+			BlockHash string          `json:"block_hash,omitempty"`
+			Consensus *struct {
+				Signatures       int     `json:"signatures"`
+				Required         int     `json:"required"`
+				Percent          float64 `json:"percent"`
+				ConsensusReached bool    `json:"consensus_reached"`
+			} `json:"consensus,omitempty"`
+		}
+
+		if err := json.Unmarshal(msg, &wsMsg); err != nil {
+			c.logger.Printf("⚠️  Error unmarshaling WebSocket message: %v", err)
+			continue
+		}
+
+		c.logger.Printf("📩 [WS] Message type: %s", wsMsg.Type)
+
+		switch wsMsg.Type {
+		case "block_announce":
+			if wsMsg.Block != nil {
+				c.logger.Printf("📩 [WS] New block announced: height=%d, hash=%s", wsMsg.Block.Height, wsMsg.Block.ShortHash())
+				// Обрабатываем блок
+				go c.processBlock(wsMsg.Block)
+			} else {
+				c.logger.Printf("⚠️  [WS] Block announcement with nil block")
+			}
+
+		case "consensus_update":
+			if wsMsg.Consensus != nil {
+				c.logger.Printf("📊 [WS] Consensus update: %d/%d (%.1f%%)",
+					wsMsg.Consensus.Signatures,
+					wsMsg.Consensus.Required,
+					wsMsg.Consensus.Percent)
+			}
+		}
+	}
+}
+
+// initP2P инициализирует P2P узел
+func (c *Client) initP2P() {
+	// Определяем адрес для прослушивания (порт 9001 + offset от PID)
+	listenAddr := fmt.Sprintf("localhost:900%d", os.Getpid()%10)
+	
+	// Создаём P2P ноду
+	c.p2pNode = p2p.NewP2PNode(c.publicKeyHex, c.publicKeyHex, c.config.Server, listenAddr)
+
+	// Устанавливаем обработчик новых блоков
+	c.p2pNode.SetBlockHandler(func(b *block.Block) {
+		c.logger.Printf("📩 [P2P] Block received from peer: height=%d", b.Height)
+		go c.processBlock(b)
+	})
+
+	// Устанавливаем обработчик подписей
+	c.p2pNode.SetSignatureHandler(func(blockHash string, signature []byte, publicKey string) {
+		c.logger.Printf("📩 [P2P] Signature received from %s", publicKey[:min(len(publicKey), 16)])
+	})
+
+	// Запускаем P2P узел
+	go func() {
+		if err := c.p2pNode.Start(); err != nil {
+			c.logger.Printf("⚠️  P2P start failed: %v", err)
+		} else {
+			c.logger.Printf("✅ P2P node started on %s", listenAddr)
+		}
+	}()
+	
+	// Для демо: подключаемся к другим клиентам напрямую
+	// В production это будет через API сервера
+	go func() {
+		time.Sleep(3 * time.Second)
+		// Подключаемся к другим клиентам (для демо)
+		// Клиент 1 (порт 9001), Клиент 2 (порт 9002), Клиент 3 (порт 9003)
+		peers := []string{"localhost:9001", "localhost:9002", "localhost:9003"}
+		for _, peerAddr := range peers {
+			if peerAddr != listenAddr {
+				go c.p2pNode.ConnectToPeer(peerAddr)
+			}
+		}
+	}()
+}
+
+// ConnectToPeer подключается к пиру (экспорт для демо)
+func (c *Client) ConnectToPeer(addr string) {
+	if c.p2pNode != nil {
+		c.p2pNode.ConnectToPeer(addr)
+	}
+}
+
+// processBlock обрабатывает полученный блок (из WebSocket или P2P)
+func (c *Client) processBlock(b *block.Block) {
+	c.logger.Printf("📦 Processing block: height=%d, hash=%s, signatures=%d, document_hash=%s",
+		b.Height, b.ShortHash(), len(b.Signatures), hex.EncodeToString(b.DocumentHash[:]))
+
+	// Проверяем валидность блока
+	if b.Height <= 0 {
+		c.logger.Println("⚠️  Invalid block height")
+		return
+	}
+
+	// Проверяем, не подписан ли уже нами
+	if b.IsSignedBy(c.keyPair.PublicKey) {
+		c.logger.Println("⏭️  Block already signed by us")
+		return
+	}
+
+	// Подписываем блок
+	c.logger.Println("✍️  Signing block...")
+	signature := c.keyPair.Sign(b.Hash[:])
+	c.logger.Printf("✅ Signature created: %s...", hex.EncodeToString(signature)[:min(16, len(hex.EncodeToString(signature)))])
+
+	// 1. Отправляем подпись на сервер (для сохранения в блокчейн)
+	if err := c.sendSignature(b.Hash, signature); err != nil {
+		c.logger.Printf("❌ Error sending signature to server: %v", err)
+		// Не прерываем, продолжаем с P2P
+	}
+
+	// 2. Транслируем подпись через P2P всем пирам (напрямую!)
+	if c.p2pNode != nil && c.p2pNode.IsConnected() {
+		c.p2pNode.BroadcastSignature(b.Hash, signature, c.publicKeyHex)
+		c.logger.Println("📢 Signature broadcasted via P2P")
 	}
 }
 
@@ -113,19 +327,36 @@ func (c *Client) runDaemon() {
 	defer ticker.Stop()
 
 	c.logger.Printf("⏰ Check interval: %v", time.Duration(c.config.Daemon.Interval))
-	c.logger.Printf("🔑 Public key: %s...", c.publicKeyHex[:16])
+	c.logger.Printf("🔑 Public key: %s...", c.publicKeyHex[:min(len(c.publicKeyHex), 16)])
+	c.logger.Printf("🌐 Hybrid mode: WebSocket=%v, P2P=%v", c.useWebSocket, c.p2pNode != nil)
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := c.processOnce(); err != nil {
-				c.logger.Printf("❌ Error: %v", err)
+			// Если WebSocket подключен - polling не нужен (сервер сам присылает уведомления)
+			if !c.useWebSocket {
+				if err := c.processOnce(); err != nil {
+					c.logger.Printf("❌ Error: %v", err)
+				}
+			} else {
+				c.logger.Printf("📡 WebSocket active, skipping polling")
 			}
 
 		case sig := <-sigChan:
 			c.logger.Printf("🛑 Received signal %v, shutting down...", sig)
+			c.shutdown()
 			return
 		}
+	}
+}
+
+// shutdown корректно останавливает клиента
+func (c *Client) shutdown() {
+	if c.wsConn != nil {
+		c.wsConn.Close(websocket.StatusNormalClosure, "shutdown")
+	}
+	if c.p2pNode != nil {
+		c.p2pNode.Stop()
 	}
 }
 
@@ -168,7 +399,7 @@ func (c *Client) processOnce() error {
 	// 5. Подписываем блок
 	c.logger.Println("✍️  Signing block...")
 	signature := c.keyPair.Sign(lastBlock.Hash[:])
-	c.logger.Printf("✅ Signature created: %s...", hex.EncodeToString(signature)[:16])
+	c.logger.Printf("✅ Signature created: %s...", hex.EncodeToString(signature)[:min(16, len(hex.EncodeToString(signature)))])
 
 	// 6. Отправляем подпись на сервер
 	if err := c.sendSignature(lastBlock.Hash, signature); err != nil {
@@ -186,7 +417,7 @@ func (c *Client) checkForeignSignatures(b *block.Block) {
 	for _, sig := range b.Signatures {
 		if sig.PublicKey != ourKey {
 			c.logger.Printf("⚠️  ALERT: Block %d has foreign signature from %s...", 
-				b.Height, sig.PublicKey[:16])
+				b.Height, sig.PublicKey[:min(len(sig.PublicKey), 16)])
 			
 			// Отправляем уведомление на вебхук если настроено
 			if c.config.SelfHealing.AlertWebhook != "" {

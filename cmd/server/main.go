@@ -3,6 +3,7 @@ package main
 import (
 	"ChainDocs/internal/block"
 	"ChainDocs/internal/crypto"
+	"ChainDocs/internal/websocket"
 	"ChainDocs/pkg/logger"
 	"ChainDocs/pkg/metrics"
 	"crypto/rand"
@@ -30,10 +31,12 @@ import (
 type Server struct {
 	db      *storage.Storage
 	pubKeys map[string]bool // зарегистрированные ключи
-	mu      sync.RWMutex
+	mu      sync.RWMutex // мьютекс для pubKeys
+	blockMu sync.Mutex   // мьютекс для операций с блоками
 	logger  *logger.Logger
 	config  *ServerConfig
 	authToken string // токен для веб-интерфейса
+	wsHub     *websocket.Hub // WebSocket Hub для real-time уведомлений
 }
 
 func main() {
@@ -130,7 +133,9 @@ func main() {
 	r.Get("/web/login", srv.handleWebLogin)
 	r.Post("/web/login", srv.handleWebLoginSubmit)
 	r.Get("/web/blocks", srv.handleWebBlocks)
-	r.Get("/web/blocks/{hash}", srv.handleWebBlock)
+	r.Get("/web/block/{hash}", srv.handleWebBlockDetail)
+	r.Get("/web/categories", srv.handleWebCategories)
+	r.Get("/web/categories/{id}", srv.handleWebCategory)
 	r.Get("/web/upload", srv.handleWebUpload)
 	r.Get("/web/keys", srv.handleWebKeys)
 
@@ -141,6 +146,7 @@ func main() {
 	r.Get("/api/blocks/{hash}", srv.handleGetBlock)
 	r.Get("/api/blocks/height/{height}", srv.handleGetBlockByHeight)
 	r.Get("/api/blocks/{hash}/consensus", srv.handleGetConsensus)
+	r.Get("/api/blocks/pending", srv.handleGetPendingBlocks)
 	r.Post("/api/blocks", srv.handleCreateBlock)
 	r.Post("/api/register", srv.handleRegisterKey)
 	r.Post("/api/sign", srv.handleSignature)
@@ -152,6 +158,10 @@ func main() {
 	r.Get("/api/keys/revoked", srv.handleGetRevokedKeys)
 	r.Get("/api/keys/active", srv.handleGetActiveKeys)
 	
+	// WebSocket & P2P routes
+	r.Get("/ws/notifications", srv.wsHub.Handler())
+	r.Get("/api/peers", srv.handleGetPeers)
+
 	// Categories
 	r.Get("/api/categories", srv.handleGetCategories)
 	r.Post("/api/categories", srv.handleCreateCategory)
@@ -185,6 +195,11 @@ func NewServer(store *storage.Storage, config *ServerConfig) (*Server, error) {
 		logger.Warn("⚠️  No auth token set. Using generated token: %s", s.authToken)
 		logger.Warn("⚠️  Set CHAINDOCS_AUTH_TOKEN environment variable for production")
 	}
+
+	// Создаём WebSocket Hub
+	s.wsHub = websocket.NewHub("server")
+	s.wsHub.Start()
+	logger.Info("🌐 WebSocket Hub initialized")
 
 	// Загружаем сохраненные ключи
 	if err := s.loadKeys(); err != nil {
@@ -244,17 +259,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			validToken := false
 			if token != "" && token == s.authToken {
 				validToken = true
-				// Устанавливаем cookie если токена не было в cookie
-				if _, err := r.Cookie("auth_token"); err != nil {
-					http.SetCookie(w, &http.Cookie{
-						Name:     "auth_token",
-						Value:    token,
-						Path:     "/web/",
-						MaxAge:   86400, // 24 часа
-						HttpOnly: true,
-						SameSite: http.SameSiteLaxMode,
-					})
-				}
+				// Устанавливаем cookie
+				http.SetCookie(w, &http.Cookie{
+					Name:     "auth_token",
+					Value:    token,
+					Path:     "/web/",
+					MaxAge:   86400, // 24 часа
+					HttpOnly: true,
+					SameSite: http.SameSiteLaxMode,
+				})
 			}
 			if strings.HasPrefix(authHeader, "Bearer ") && authHeader[7:] == s.authToken {
 				validToken = true
@@ -527,6 +540,10 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 	var hashArr [32]byte
 	copy(hashArr[:], blockHash)
 
+	// Блокируем операции с блоками чтобы избежать гонки подписей
+	s.blockMu.Lock()
+	defer s.blockMu.Unlock()
+	
 	// Получаем блок
 	b, err := s.db.GetBlock(hashArr)
 	if err != nil {
@@ -549,7 +566,7 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 
 	// Добавляем подпись в блок
 	b.AddSignature(pubKey, signature)
-	
+
 	if err := s.db.SaveBlock(b); err != nil {
 		http.Error(w, "Failed to save signature", http.StatusInternalServerError)
 		return
@@ -574,14 +591,24 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		required = 2
 	}
 	
-	logger.Info("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]", 
+	logger.Info("✅ Signature saved for block %d from %s... [%d/%d = %.1f%%]",
 		b.Height, req.PublicKey[:16], signed, required, percent)
-	
+
 	// Если консенсус достигнут
 	if b.ConsensusReached(totalKeys) && signed >= required {
-		logger.Info("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)", 
+		logger.Info("🎉 CONSENSUS REACHED for block %d! (%d/%d signatures)",
 			b.Height, signed, required)
 	}
+
+	// Отправляем WebSocket уведомление о консенсусе
+	blockHashHex := hex.EncodeToString(blockHash[:])
+	s.wsHub.BroadcastConsensus(
+		blockHashHex,
+		signed,
+		required,
+		percent,
+		b.ConsensusReached(totalKeys) && signed >= required,
+	)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -594,19 +621,34 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Директория для хранения файлов
-const uploadDir = "./uploads"
-
 // handleUpload - загрузка PDF файла
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	// Создаем директорию для загрузок, если нет
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	// Получаем директорию загрузок из конфига
+	uploadDir := s.config.UploadDir
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+	
+	// Получаем категорию (опционально)
+	category := r.FormValue("category")
+	
+	// Создаем директорию для загрузок
+	baseDir := uploadDir
+	if category != "" {
+		baseDir = filepath.Join(uploadDir, category)
+	}
+
+	logger.Info("📄 Upload: category=%s, baseDir=%s", category, baseDir)
+	
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		logger.Error("❌ Failed to create directory %s: %v", baseDir, err)
 		http.Error(w, "Failed to create upload directory", http.StatusInternalServerError)
 		return
 	}
 
 	// Парсим multipart форму (макс 10MB)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		logger.Error("❌ Failed to parse form: %v", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
@@ -614,6 +656,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Получаем файл
 	file, header, err := r.FormFile("file")
 	if err != nil {
+		logger.Error("❌ Failed to get file: %v", err)
 		http.Error(w, "Failed to get file", http.StatusBadRequest)
 		return
 	}
@@ -621,6 +664,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Проверяем расширение
 	if ext := filepath.Ext(header.Filename); ext != ".pdf" && ext != ".PDF" {
+		logger.Error("❌ Invalid file extension: %s", ext)
 		http.Error(w, "Only PDF files allowed", http.StatusBadRequest)
 		return
 	}
@@ -628,6 +672,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Читаем файл для вычисления хэша
 	data, err := io.ReadAll(file)
 	if err != nil {
+		logger.Error("❌ Failed to read file: %v", err)
 		http.Error(w, "Failed to read file", http.StatusInternalServerError)
 		return
 	}
@@ -664,7 +709,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Сохраняем файл (имя = хэш.pdf)
-	filePath := filepath.Join(uploadDir, hashHex+".pdf")
+	filePath := filepath.Join(baseDir, hashHex+".pdf")
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
@@ -693,6 +738,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to save block", http.StatusInternalServerError)
 		return
 	}
+
+	// Отправляем WebSocket уведомление о новом блоке
+	s.wsHub.BroadcastBlock(newBlock)
 
 	// Сохраняем информацию о документе
 	docInfo := struct {
@@ -732,6 +780,12 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Получаем директорию загрузок из конфига
+	uploadDir := s.config.UploadDir
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+
 	filePath := filepath.Join(uploadDir, hashHex+".pdf")
 
 	// Проверяем существование файла
@@ -746,8 +800,23 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 
 // handleBulkUpload - массовая загрузка файлов
 func (s *Server) handleBulkUpload(w http.ResponseWriter, r *http.Request) {
-	// Создаем директорию для загрузок, если нет
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	// Получаем директорию загрузок из конфига
+	uploadDir := s.config.UploadDir
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+	
+	// Получаем категорию (опционально)
+	category := r.FormValue("category")
+	
+	// Создаем директорию для загрузок
+	baseDir := uploadDir
+	if category != "" {
+		// Сохраняем в подпапку категории
+		baseDir = filepath.Join(uploadDir, category)
+	}
+	
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		http.Error(w, "Failed to create upload directory", http.StatusInternalServerError)
 		return
 	}
@@ -757,9 +826,6 @@ func (s *Server) handleBulkUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
-
-	// Получаем категорию (опционально)
-	category := r.FormValue("category")
 	
 	// Получаем все файлы
 	files := r.MultipartForm.File["files"]
@@ -818,7 +884,7 @@ func (s *Server) handleBulkUpload(w http.ResponseWriter, r *http.Request) {
 		result.Hash = hashHex
 
 		// Сохраняем файл
-		filePath := filepath.Join(uploadDir, hashHex+".pdf")
+		filePath := filepath.Join(baseDir, hashHex+".pdf")
 		if err := os.WriteFile(filePath, data, 0644); err != nil {
 			result.Error = "Failed to save file"
 			results = append(results, result)
@@ -841,6 +907,9 @@ func (s *Server) handleBulkUpload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, result)
 			continue
 		}
+
+		// Отправляем WebSocket уведомление о новом блоке
+		s.wsHub.BroadcastBlock(newBlock)
 
 		result.BlockHash = hex.EncodeToString(newBlock.Hash[:])
 		result.Success = true
@@ -928,6 +997,51 @@ func (s *Server) handleGetConsensus(w http.ResponseWriter, r *http.Request) {
 		"percent":           percent,
 		"consensus_reached": consensusReached,
 		"signatures_list":   b.Signatures,
+	})
+}
+
+// handleGetPendingBlocks - получение блоков ожидающих подписи
+func (s *Server) handleGetPendingBlocks(w http.ResponseWriter, r *http.Request) {
+	blocks, err := s.db.GetAllBlocks()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Получаем количество активных ключей
+	activeKeys, _ := s.db.GetActiveKeys(24 * time.Hour)
+	totalKeys := len(activeKeys)
+	if totalKeys == 0 {
+		s.mu.RLock()
+		totalKeys = len(s.pubKeys)
+		s.mu.RUnlock()
+	}
+
+	// Фильтруем блоки с недостаточным консенсусом
+	pending := make([]interface{}, 0)
+	for _, b := range blocks {
+		signed, required, percent := b.GetConsensusProgress(totalKeys)
+		if required < 2 {
+			required = 2
+		}
+		
+		// Если консенсус не достигнут - добавляем в pending
+		if !b.ConsensusReached(totalKeys) || signed < required {
+			pending = append(pending, map[string]interface{}{
+				"hash":       hex.EncodeToString(b.Hash[:]),
+				"height":     b.Height,
+				"signatures": signed,
+				"required":   required,
+				"percent":    percent,
+				"timestamp":  b.Timestamp,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":          len(pending),
+		"pending_blocks": pending,
 	})
 }
 
@@ -1284,11 +1398,11 @@ func (s *Server) handleWebBlocks(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWebBlock - детали блока
-func (s *Server) handleWebBlock(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleWebBlockDetail(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/templates/block.html")
 }
 
-// handleWebUpload - загрузка документа
+// handleWebUpload - загрузка документов
 func (s *Server) handleWebUpload(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/templates/upload.html")
 }
@@ -1296,5 +1410,28 @@ func (s *Server) handleWebUpload(w http.ResponseWriter, r *http.Request) {
 // handleWebKeys - управление ключами
 func (s *Server) handleWebKeys(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/templates/keys.html")
+}
+
+// handleWebCategories - страница управления категориями
+func (s *Server) handleWebCategories(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "web/templates/categories.html")
+}
+
+// handleWebCategory - страница категории
+func (s *Server) handleWebCategory(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "web/templates/categories.html")
+}
+
+// handleGetPeers - получение списка пиров для P2P
+func (s *Server) handleGetPeers(w http.ResponseWriter, r *http.Request) {
+	// Пока возвращаем пустой список - P2P адреса нужно конфигурировать
+	// В будущем можно добавить API для регистрации P2P адреса клиента
+	peers := []websocket.PeerInfo{}
+	
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"peers": peers,
+		"count": len(peers),
+		"server": websocket.ExtractHostPort(r.Host),
+	})
 }
 

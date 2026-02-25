@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"ChainDocs/internal/block"
@@ -28,10 +29,21 @@ var (
 	bucketMeta   = []byte("metadata")  // метаданные (последний блок и т.д.)
 	bucketPubKeys = []byte("pubkeys")  // зарегистрированные публичные ключи
 	bucketRevoked = []byte("revoked")  // отозванные ключи
-	bucketActivity = []byte("activity") // активность ключей (key -> last_seen timestamp)
+	bucketActivity = []byte("activity") // активность ключей
 	bucketCategories = []byte("categories") // категории документов
+)
 
-	// Ключи метаданных
+// Storage хранилище блокчейна
+type Storage struct {
+	db  *bbolt.DB
+	mu  sync.RWMutex // мьютекс для синхронизации доступа к блокам
+}
+
+// bucketActivity = []byte("activity") // активность ключей (key -> last_seen timestamp)
+// bucketCategories = []byte("categories") // категории документов
+
+// Ключи метаданных
+var (
 	keyLastHash   = []byte("last_hash")
 	keyLastHeight = []byte("last_height")
 )
@@ -61,10 +73,6 @@ type DocumentMetadata struct {
 	Uploaded   string `json:"uploaded"`
 	BlockHash  string `json:"block_hash"`
 	Owner      string `json:"owner,omitempty"` // Публичный ключ владельца
-}
-
-type Storage struct {
-	db *bbolt.DB
 }
 
 // New создает или открывает хранилище
@@ -108,6 +116,9 @@ func (s *Storage) Close() error {
 
 // SaveBlock сохраняет блок в БД
 func (s *Storage) SaveBlock(b *block.Block) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		// Сериализуем блок (можно использовать JSON или бинарный формат)
 		data, err := b.MarshalJSON()

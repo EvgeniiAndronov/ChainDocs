@@ -1,8 +1,8 @@
 {
   "port": 8080,
-  "db_path": "blockchain.db",
-  "upload_dir": "./uploads",
-  "log_file": "",
+  "db_path": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_blockchain.db",
+  "upload_dir": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_uploads",
+  "log_file": "/Users/evgenii/GolandProjects/ChainDocs/demo/demo_logs/server.log",
   "log_level": "info",
   "consensus": {
     "type": "percentage",
@@ -12,7 +12,7 @@
     "use_active_keys": true
   },
   "activity": {
-    "window": "24h0m0s",
+    "window": "24h",
     "auto_cleanup": true
   },
   "tls": {
@@ -22,7 +22,7 @@
   },
   "rate_limit": {
     "enabled": false,
-    "requests_per_second": 10,
-    "burst": 20
+    "requests_per_second": 100,
+    "burst": 200
   }
 }

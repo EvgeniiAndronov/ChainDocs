@@ -14,8 +14,6 @@
         .nav-link i { margin-right: 0.5rem; }
         .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
         .hash { font-family: 'Courier New', monospace; font-size: 0.85rem; }
-        .hash-short { color: #0d6efd; }
-        .consensus-progress { height: 8px; }
         .main-content { padding: 2rem; }
         .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
         .logo i { color: #0d6efd; }
@@ -29,65 +27,53 @@
                 <ul class="nav flex-column">
                     <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link active" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузить</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/categories"><i class="bi bi-folder"></i> Категории</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузка</a></li>
                     <li class="nav-item"><a class="nav-link" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
                 </ul>
-                <hr class="my-4" style="border-color: rgba(255,255,255,0.1)">
-                <div class="px-3">
-                    <small class="text-muted">Статус системы</small>
-                    <div class="d-flex align-items-center mt-2">
-                        <div class="spinner-grow spinner-grow-sm text-success me-2"></div>
-                        <span class="text-success">Онлайн</span>
-                    </div>
-                </div>
             </nav>
+
             <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="blocksData()" x-init="loadBlocks()">
-                <div class="page-header pt-4 d-flex justify-content-between align-items-center">
-                    <div>
-                        <h1 class="h2"><i class="bi bi-layers"></i> Блоки</h1>
-                        <p class="text-muted">Все блоки блокчейна</p>
-                    </div>
-                    <a href="/web/upload" class="btn btn-primary"><i class="bi bi-cloud-upload"></i> Загрузить документ</a>
+                <div class="page-header pt-4">
+                    <h1 class="h2"><i class="bi bi-layers"></i> Блоки</h1>
+                    <p class="text-muted">Все блоки блокчейна</p>
                 </div>
+
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-list-ul"></i> Список блоков</span>
-                        <span class="badge bg-secondary" x-text="'Всего: ' + blocks.length"></span>
-                    </div>
-                    <div class="card-body p-0">
+                    <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table table-dark table-hover mb-0">
+                            <table class="table table-hover">
                                 <thead>
-                                    <tr><th>Высота</th><th>Хэш</th><th>Документ</th><th>Подписи</th><th>Консенсус</th><th>Время</th><th></th></tr>
+                                    <tr>
+                                        <th>Высота</th>
+                                        <th>Хэш</th>
+                                        <th>Документ</th>
+                                        <th>Подписи</th>
+                                        <th>Статус</th>
+                                        <th>Время</th>
+                                        <th></th>
+                                    </tr>
                                 </thead>
                                 <tbody>
                                     <template x-for="block in blocks" :key="block.hash">
                                         <tr>
-                                            <td><span class="badge bg-primary" x-text="block.height"></span></td>
-                                            <td><span class="hash hash-short" x-text="block.hash.substring(0, 12) + '...'"></span></td>
+                                            <td x-text="block.height"></td>
+                                            <td><code class="hash" x-text="block.hash.substring(0, 16) + '...'"></code></td>
+                                            <td><code class="hash" x-text="block.document_hash.substring(0, 16) + '...'"></code></td>
                                             <td>
-                                                <span class="hash hash-short" x-text="block.document_hash.substring(0, 12) + '...'"></span>
-                                                <span x-show="block.height === 0" class="badge bg-secondary ms-1">Genesis</span>
+                                                <span class="badge" :class="getSignatureBadge((block.signatures?.length || 0))" x-text="(block.signatures?.length || 0) + ' подписей'"></span>
                                             </td>
-                                            <td><span class="badge" :class="block.signatures?.length > 0 ? 'bg-success' : 'bg-secondary'" x-text="(block.signatures?.length || 0) + ' подписей'"></span></td>
-                                            <td style="min-width: 150px;">
-                                                <div class="d-flex align-items-center">
-                                                    <div class="progress consensus-progress flex-grow-1 me-2">
-                                                        <div class="progress-bar" :class="getConsensusClass(block)" role="progressbar" :style="'width: ' + getConsensusPercent(block) + '%'"></div>
-                                                    </div>
-                                                    <small x-text="getConsensusPercent(block) + '%'"></small>
-                                                </div>
+                                            <td>
+                                                <span class="badge" :class="getStatusBadge(block.signatures?.length || 0)" x-text="getStatusText(block.signatures?.length || 0)"></span>
                                             </td>
-                                            <td><small x-text="formatDate(block.timestamp)"></small></td>
-                                            <td><a :href="'/web/blocks/' + block.hash" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td>
+                                            <td x-text="formatDate(block.timestamp)"></td>
+                                            <td>
+                                                <a :href="'/web/block/' + block.hash" class="btn btn-sm btn-outline-primary">
+                                                    <i class="bi bi-eye"></i>
+                                                </a>
+                                            </td>
                                         </tr>
                                     </template>
-                                    <tr x-show="blocks.length === 0">
-                                        <td colspan="7" class="text-center py-5">
-                                            <i class="bi bi-inbox" style="font-size: 3rem; color: rgba(255,255,255,0.3);"></i>
-                                            <p class="text-muted mt-3 mb-0">Блоков пока нет</p>
-                                        </td>
-                                    </tr>
                                 </tbody>
                             </table>
                         </div>
@@ -96,35 +82,35 @@
             </main>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
     <script>
     function blocksData() {
         return {
             blocks: [],
-            totalKeys: 0,
             async loadBlocks() {
                 try {
-                    const [blocksRes, keysRes] = await Promise.all([
-                        fetch('/api/blocks').then(r => r.json()),
-                        fetch('/api/keys').then(r => r.json())
-                    ]);
-                    this.blocks = blocksRes || [];
-                    this.totalKeys = keysRes.count || 0;
-                } catch (e) { console.error('Failed to load blocks:', e); }
+                    const res = await fetch('/api/blocks');
+                    this.blocks = await res.json();
+                } catch (e) { console.error('Blocks:', e); }
             },
-            formatDate(dateStr) { if (!dateStr) return ''; return new Date(dateStr).toLocaleString('ru-RU'); },
-            getConsensusPercent(block) {
-                const sigs = block.signatures?.length || 0;
-                if (this.totalKeys === 0) return 0;
-                const required = Math.floor(this.totalKeys / 2) + 1;
-                if (required === 0) return 0;
-                return Math.min(100, Math.round(sigs / required * 100));
+            getSignatureBadge(count) {
+                if (count >= 2) return 'bg-success';
+                if (count > 0) return 'bg-warning';
+                return 'bg-danger';
             },
-            getConsensusClass(block) {
-                const percent = this.getConsensusPercent(block);
-                if (percent >= 100) return 'bg-success';
-                if (percent >= 50) return 'bg-warning';
-                return 'bg-secondary';
+            getStatusBadge(count) {
+                if (count >= 2) return 'bg-success';
+                if (count > 0) return 'bg-warning';
+                return 'bg-danger';
+            },
+            getStatusText(count) {
+                if (count >= 2) return 'Подписан';
+                if (count > 0) return 'Частично';
+                return 'Не подписан';
+            },
+            formatDate(dateStr) {
+                if (!dateStr) return '—';
+                return new Date(dateStr).toLocaleString('ru-RU');
             }
         }
     }

@@ -2,14 +2,47 @@
 
 ## Содержание
 
-1. [Установка сервера](#1-установка-сервера)
-2. [Установка клиента-демона](#2-установка-клиента-демона)
-3. [Боевое тестирование](#3-боевое-тестирование)
-4. [Мониторинг и управление](#4-мониторинг-и-управление)
+1. [Быстрый старт (Демо)](#1-быстрый-старт-демо)
+2. [Установка сервера](#2-установка-сервера)
+3. [Установка клиента-демона](#3-установка-клиента-демона)
+4. [Боевое тестирование](#4-боевое-тестирование)
+5. [Мониторинг и управление](#5-мониторинг-и-управление)
 
 ---
 
-## 1. Установка сервера
+## 1. Быстрый старт (Демо)
+
+**Рекомендуется для знакомства с системой!**
+
+```bash
+# Клонировать репозиторий
+git clone https://github.com/EvgeniiAndronov/ChainDocs.git
+cd ChainDocs
+
+# Запустить демонстрацию
+make demo-start
+# или
+./demo/demo-start.sh
+```
+
+**Через 30 секунд:**
+- ✅ Сервер запущен на `http://localhost:8080`
+- ✅ 3 клиента-демона автоматически подписывают блоки
+- ✅ Тестовый документ загружен и подписан (консенсус достигнут)
+
+**Веб-интерфейс:** http://localhost:8080/web/login?token=demo_token
+
+**Управление демо:**
+```bash
+make demo-stop   # Остановка
+make demo-clean  # Очистка
+```
+
+**Полная документация:** [demo/README.md](demo/README.md)
+
+---
+
+## 2. Установка сервера
 
 ### Вариант A: Docker (рекомендуется)
 
@@ -31,15 +64,14 @@ docker-compose logs -f chaindocs-server
 ### Вариант B: Локальный запуск
 
 ```bash
-# 1. Сборка
-cd /path/to/ChainDocs
-go build -o bin/server ./cmd/server/main.go
+# 1. Сборка (все компоненты)
+make build
 
-# 2. Запуск
-./bin/server
-
-# 3. Или через make
+# 2. Запуск сервера
 make run
+
+# Или вручную:
+./bin/server
 ```
 
 ---
@@ -210,120 +242,63 @@ sudo ./scripts/install/install-client.sh --uninstall
 
 ---
 
-## 3. Боевое тестирование
+## 4. Боевое тестирование
 
-### Сценарий: 3 клиента подписывают документ
+### Вариант A: Через Make (рекомендуется)
 
 ```bash
-#!/bin/bash
-# test-live.sh - Скрипт для тестирования
+# Все тесты
+make test
 
-set -e
-
-echo "🧪 Начинаем боевое тестирование ChainDocs"
-echo "=========================================="
-
-# Очистка (опционально)
-# rm -f blockchain.db *.enc
-
-# Шаг 1: Запуск сервера (в фоне)
-echo "📀 Запуск сервера..."
-./bin/server &
-SERVER_PID=$!
-sleep 2
-
-# Проверка сервера
-curl -s http://localhost:8080/api/blocks/last | jq '.height' || {
-    echo "❌ Сервер не запустился"
-    kill $SERVER_PID
-    exit 1
-}
-echo "✅ Сервер запущен"
-
-# Шаг 2: Генерация 3 ключей
-echo "🔑 Генерация ключей..."
-./bin/keygen -password pass1 -out client1.enc
-./bin/keygen -password pass2 -out client2.enc
-./bin/keygen -password pass3 -out client3.enc
-
-# Извлекаем публичные ключи
-PUB1=$(./bin/keygen -password pass1 -out client1.enc 2>&1 | grep "Public key:" | awk '{print $NF}')
-PUB2=$(./bin/keygen -password pass2 -out client2.enc 2>&1 | grep "Public key:" | awk '{print $NF}')
-PUB3=$(./bin/keygen -password pass3 -out client3.enc 2>&1 | grep "Public key:" | awk '{print $NF}')
-
-echo "Клиент 1: $PUB1"
-echo "Клиент 2: $PUB2"
-echo "Клиент 3: $PUB3"
-
-# Шаг 3: Регистрация ключей
-echo "📝 Регистрация ключей..."
-curl -s -X POST http://localhost:8080/api/register \
-  -H "Content-Type: application/json" \
-  -d "{\"public_key\":\"$PUB1\"}" | jq -r '.status'
-curl -s -X POST http://localhost:8080/api/register \
-  -H "Content-Type: application/json" \
-  -d "{\"public_key\":\"$PUB2\"}" | jq -r '.status'
-curl -s -X POST http://localhost:8080/api/register \
-  -H "Content-Type: application/json" \
-  -d "{\"public_key\":\"$PUB3\"}" | jq -r '.status'
-
-# Проверка количества ключей
-KEYS_COUNT=$(curl -s http://localhost:8080/api/keys | jq '.count')
-echo "✅ Зарегистрировано ключей: $KEYS_COUNT"
-
-# Шаг 4: Загрузка тестового документа
-echo "📄 Загрузка документа..."
-echo "Test Document" > test.pdf
-UPLOAD_RESULT=$(curl -s -X POST http://localhost:8080/api/upload \
-  -F "file=@test.pdf" | jq -r '.block_hash')
-echo "✅ Блок создан: $UPLOAD_RESULT"
-
-# Шаг 5: Запуск клиентов
-echo "✍️  Подписание блока клиентами..."
-
-CHAINDOCS_KEY_PASSWORD=pass1 ./bin/client -mode oneshot
-CHAINDOCS_KEY_PASSWORD=pass2 ./bin/client -mode oneshot
-CHAINDOCS_KEY_PASSWORD=pass3 ./bin/client -mode oneshot
-
-# Шаг 6: Проверка консенсуса
-echo "📊 Проверка консенсуса..."
-sleep 1
-
-BLOCK_HASH=$(curl -s http://localhost:8080/api/blocks/last | jq -r '.hash')
-CONSENSUS=$(curl -s "http://localhost:8080/api/blocks/$BLOCK_HASH/consensus" | jq)
-
-echo "Статус консенсуса:"
-echo "$CONSENSUS" | jq -r '"\(.signatures)/\(.required) подписей (\(.percent)%)"'
-
-if [ "$(echo "$CONSENSUS" | jq -r '.consensus_reached')" = "true" ]; then
-    echo "✅ КОНСЕНСУС ДОСТИГНУТ!"
-else
-    echo "❌ Консенсус не достигнут"
-fi
-
-# Шаг 7: Проверка блока
-echo "🔍 Проверка блока..."
-curl -s http://localhost:8080/api/blocks/last | jq '.signatures | length'
-
-# Завершение
-echo ""
-echo "=========================================="
-echo "✅ Боевое тестирование завершено!"
-echo ""
-
-kill $SERVER_PID
+# Только боевые тесты
+make test-live
 ```
 
-### Запуск теста
+### Вариант B: Ручной запуск
 
 ```bash
 chmod +x test-live.sh
 ./test-live.sh
 ```
 
+### Ожидаемый результат
+
+```
+🧪 ChainDocs Live Tests
+════════════════════════════════════════
+Тест 1: Запуск сервера
+✅ Сервер запущен и отвечает
+Тест 2: Генерация ключей
+✅ Ключи сгенерированы
+Тест 3: Регистрация ключей
+✅ Зарегистрировано ключей: 3
+Тест 4: Загрузка документа
+✅ Документ загружен
+Тест 5: Запуск клиентов-демонов
+✅ Клиенты запущены
+Тест 6: Проверка консенсуса
+✅ Консенсус достигнут (3 из 2)
+Тест 7: Проверка блока
+✅ Блок подписан (3 подписей)
+Тест 8: Второй документ (автоматическая подпись)
+✅ Второй блок автоматически подписан
+════════════════════════════════════════
+✅ Все тесты пройдены!
+```
+
+**Тесты проверяют:**
+1. Запуск сервера
+2. Генерацию 3 ключей
+3. Регистрацию ключей
+4. Загрузку PDF документа
+5. Запуск клиентов-демонов
+6. Достижение консенсуса (51%+)
+7. Наличие подписей в блоке
+8. Автоматическую подпись новых блоков
+
 ---
 
-## 4. Мониторинг и управление
+## 5. Мониторинг и управление
 
 ### API для мониторинга
 

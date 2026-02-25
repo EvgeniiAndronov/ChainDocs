@@ -1,0 +1,11 @@
+{
+  "server": "http://localhost:8080",
+  "key_file": "client2.enc",
+  "password_env": "CHAINDOCS_CLIENT2_PASSWORD",
+  "mode": "daemon",
+  "daemon": {
+    "interval": "3s",
+    "sign_unsigned_only": false,
+    "stop_on_consensus": false
+  }
+}

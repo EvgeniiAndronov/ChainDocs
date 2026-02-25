@@ -14,8 +14,6 @@
         .nav-link i { margin-right: 0.5rem; }
         .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
         .hash { font-family: 'Courier New', monospace; font-size: 0.75rem; word-break: break-all; }
-        .consensus-progress { height: 8px; }
-        .signature-item { font-family: 'Courier New', monospace; font-size: 0.75rem; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 0.25rem; margin-bottom: 0.5rem; }
         .main-content { padding: 2rem; }
         .logo { font-size: 1.25rem; font-weight: 700; color: #fff; padding: 1rem; margin-bottom: 1rem; }
         .logo i { color: #0d6efd; }
@@ -29,106 +27,138 @@
                 <ul class="nav flex-column">
                     <li class="nav-item"><a class="nav-link" href="/web/"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link" href="/web/blocks"><i class="bi bi-layers"></i> Блоки</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузить</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/categories"><i class="bi bi-folder"></i> Категории</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/web/upload"><i class="bi bi-cloud-upload"></i> Загрузка</a></li>
                     <li class="nav-item"><a class="nav-link" href="/web/keys"><i class="bi bi-key"></i> Ключи</a></li>
                 </ul>
-                <hr class="my-4" style="border-color: rgba(255,255,255,0.1)">
-                <div class="px-3"><small class="text-muted">Статус системы</small><div class="d-flex align-items-center mt-2"><div class="spinner-grow spinner-grow-sm text-success me-2"></div><span class="text-success">Онлайн</span></div></div>
             </nav>
+
             <main class="col-md-9 ms-sm-auto col-lg-10 main-content" x-data="blockData()" x-init="loadBlock()">
                 <div class="page-header pt-4">
-                    <h1 class="h2"><i class="bi bi-box"></i> Блок</h1>
-                    <p class="text-muted">Детали блока</p>
+                    <p class="text-muted">Полная информация о блоке</p>
                 </div>
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="card h-100">
-                            <div class="card-header"><i class="bi bi-info-circle"></i> Информация о блоке</div>
-                            <div class="card-body">
-                                <table class="table table-dark">
-                                    <tr><td class="text-muted">Высота</td><td><span class="badge bg-primary" x-text="block.height"></span></td></tr>
-                                    <tr><td class="text-muted">Хэш блока</td><td><span class="hash" x-text="block.hash"></span></td></tr>
-                                    <tr><td class="text-muted">Предыдущий блок</td><td><span class="hash" x-text="block.prev_hash"></span></td></tr>
-                                    <tr><td class="text-muted">Хэш документа</td><td><span class="hash" x-text="block.document_hash"></span></td></tr>
-                                    <tr><td class="text-muted">Время создания</td><td x-text="formatDate(block.timestamp)"></td></tr>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card h-100">
-                            <div class="card-header"><i class="bi bi-shield-check"></i> Консенсус</div>
-                            <div class="card-body">
-                                <div class="text-center mb-4">
-                                    <div class="display-4 mb-2"><span x-text="block.signatures?.length || 0"></span> / <span x-text="requiredSignatures()"></span></div>
-                                    <p class="text-muted">подписей для консенсуса</p>
-                                </div>
-                                <div class="mb-4">
-                                    <div class="d-flex justify-content-between mb-2"><span>Прогресс</span><span x-text="consensusPercent() + '%'"></span></div>
-                                    <div class="progress consensus-progress">
-                                        <div class="progress-bar" :class="consensusReached() ? 'bg-success' : 'bg-warning'" role="progressbar" :style="'width: ' + consensusPercent() + '%'"></div>
+
+                <template x-if="block.hash">
+                    <div class="row g-4">
+                        <!-- Basic Info -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-info-circle"></i> Основная информация</div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Высота</label>
+                                        <div class="h5 mb-0" x-text="block.height"></div>
                                     </div>
-                                </div>
-                                <div class="text-center">
-                                    <div class="alert" :class="consensusReached() ? 'alert-success' : 'alert-warning'">
-                                        <i :class="consensusReached() ? 'bi bi-check-circle-fill' : 'bi bi-hourglass-split'"></i>
-                                        <span x-text="consensusReached() ? 'Консенсус достигнут!' : 'Ожидание подписей...'"></span>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Хэш блока</label>
+                                        <div><code class="hash" x-text="block.hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Предыдущий хэш</label>
+                                        <div><code class="hash" x-text="block.prev_hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Хэш документа</label>
+                                        <div><code class="hash" x-text="block.document_hash"></code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Время создания</label>
+                                        <div x-text="formatDate(block.timestamp)"></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-                <div class="card mb-4" x-show="block.signatures && block.signatures.length > 0">
-                    <div class="card-header"><i class="bi bi-pen"></i> Подписи (<span x-text="block.signatures?.length || 0"></span>)</div>
-                    <div class="card-body">
-                        <div class="row">
-                            <template x-for="(sig, index) in block.signatures" :key="sig.public_key">
-                                <div class="col-md-6 col-lg-4 mb-3">
-                                    <div class="signature-item h-100">
-                                        <div class="d-flex justify-content-between align-items-start mb-2">
-                                            <span class="badge bg-success">#<span x-text="index + 1"></span></span>
-                                            <small class="text-muted" x-text="formatDate(sig.timestamp)"></small>
+
+                        <!-- Consensus -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-shield-check"></i> Консенсус</div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Статус</label>
+                                        <div>
+                                            <span class="badge" :class="consensusReached ? 'bg-success' : 'bg-warning'" 
+                                                  x-text="consensusReached ? 'Достигнут' : 'Ожидание'"></span>
                                         </div>
-                                        <div class="mb-2">
-                                            <small class="text-muted">Публичный ключ:</small>
-                                            <div class="hash" x-text="sig.public_key"></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Прогресс</label>
+                                        <div class="progress">
+                                            <div class="progress-bar" role="progressbar" 
+                                                 :style="'width: ' + consensusPercent + '%'"
+                                                 :aria-valuenow="consensusPercent" aria-valuemin="0" aria-valuemax="100">
+                                                <span x-text="consensusPercent + '%'"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="text-muted small">Подписей</label>
+                                        <div class="h4 mb-0">
+                                            <span x-text="signatureCount"></span> / <span x-text="requiredSignatures"></span>
                                         </div>
                                     </div>
                                 </div>
-                            </template>
+                            </div>
+                        </div>
+
+                        <!-- Signatures -->
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-key"></i> Подписи клиентов</div>
+                                <div class="card-body">
+                                    <template x-if="block.signatures?.length === 0">
+                                        <p class="text-muted mb-0">Нет подписей</p>
+                                    </template>
+                                    <div class="table-responsive" x-show="block.signatures?.length > 0">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Публичный ключ</th>
+                                                    <th>Подпись</th>
+                                                    <th>Время</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <template x-for="sig in block.signatures" :key="sig.public_key">
+                                                    <tr>
+                                                        <td><code class="hash" x-text="sig.public_key"></code></td>
+                                                        <td><code class="hash" x-text="sig.signature"></code></td>
+                                                        <td x-text="formatDate(sig.timestamp)"></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </template>
             </main>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
     <script>
     function blockData() {
         return {
             block: {},
-            totalKeys: 0,
+            consensusPercent: 0,
+            requiredSignatures: 2,
+            get blockHash() { return window.location.pathname.split('/').pop(); },
+            get consensusReached() { return this.signatureCount >= this.requiredSignatures; },
+            get signatureCount() { return this.block.signatures?.length || 0; },
             async loadBlock() {
                 try {
-                    const hash = window.location.pathname.split('/').pop();
-                    const [blockRes, keysRes] = await Promise.all([
-                        fetch('/api/blocks/' + hash).then(r => r.json()),
-                        fetch('/api/keys').then(r => r.json())
-                    ]);
-                    this.block = blockRes;
-                    this.totalKeys = keysRes.count || 0;
-                } catch (e) { console.error('Failed to load block:', e); }
+                    const res = await fetch('/api/blocks/' + this.blockHash);
+                    this.block = await res.json();
+                    const total = 3; // TODO: получить из API
+                    this.consensusPercent = Math.round((this.signatureCount / total) * 100);
+                } catch (e) { console.error('Block:', e); }
             },
-            formatDate(dateStr) { if (!dateStr) return ''; return new Date(dateStr).toLocaleString('ru-RU'); },
-            requiredSignatures() { if (this.totalKeys === 0) return 0; return Math.floor(this.totalKeys / 2) + 1; },
-            consensusPercent() {
-                const sigs = this.block.signatures?.length || 0;
-                const req = this.requiredSignatures();
-                if (req === 0) return 0;
-                return Math.min(100, Math.round(sigs / req * 100));
-            },
-            consensusReached() { return (this.block.signatures?.length || 0) >= this.requiredSignatures(); }
+            formatDate(dateStr) {
+                if (!dateStr) return '—';
+                return new Date(dateStr).toLocaleString('ru-RU');
+            }
         }
     }
     </script>

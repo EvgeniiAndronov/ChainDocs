@@ -3,6 +3,10 @@
   "key_file": "demo/demo-keys/client1.enc",
   "password_env": "CHAINDOCS_CLIENT1_PASSWORD",
   "mode": "daemon",
+  "p2p": {
+    "enabled": true,
+    "listen_port": 9001
+  },
   "daemon": {
     "interval": "5s",
     "max_blocks_per_cycle": 0,

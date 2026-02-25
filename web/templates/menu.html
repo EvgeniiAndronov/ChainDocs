@@ -1,0 +1,32 @@
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "dashboard"}} active{{end}}" href="/web/">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "blocks"}} active{{end}}" href="/web/blocks">
+                            <i class="bi bi-layers"></i> Блоки
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "block"}} active{{end}}" href="/web/block">
+                            <i class="bi bi-box"></i> Детали блока
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "categories"}} active{{end}}" href="/web/categories">
+                            <i class="bi bi-folder"></i> Категории
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "upload"}} active{{end}}" href="/web/upload">
+                            <i class="bi bi-cloud-upload"></i> Загрузка
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link{{if eq .Page "keys"}} active{{end}}" href="/web/keys">
+                            <i class="bi bi-key"></i> Ключи
+                        </a>
+                    </li>
+                </ul>
